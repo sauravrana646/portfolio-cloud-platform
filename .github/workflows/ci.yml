@@ -34,7 +34,8 @@ jobs:
           push: false
           load: true
           tags: portfolio-cloud-platform-api:ci
-      - uses: aquasecurity/trivy-action@v0.32.0
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: portfolio-cloud-platform-api:ci
@@ -62,15 +63,3 @@ jobs:
         run: |
           terraform init -backend=false
           terraform validate
-
-  # Staging deploy stub — enable after OIDC role exists
-  # deploy-staging:
-  #   if: github.ref == 'refs/heads/main'
-  #   needs: [image, helm, terraform]
-  #   runs-on: ubuntu-latest
-  #   environment: staging
-  #   permissions:
-  #     id-token: write
-  #     contents: read
-  #   steps:
-  #     - run: echo "Wire ECS/EKS deploy here"
