@@ -2,6 +2,8 @@
 
 > Production-ready app platform patterns on AWS + Kubernetes — local-first with Compose/Helm/kind, cloud-optional via Terraform (`ecs` cheap path; `eks` off by default).
 
+![Demo: Compose stack and local /healthz](docs/images/demo.jpg)
+
 ## Problem this solves for a startup
 
 You need a real deploy path (API + worker + observability + CI) without standing up an expensive EKS cluster on day one.
