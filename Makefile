@@ -9,7 +9,7 @@ down:
 	docker compose down -v
 
 test:
-	cd app/api && pip install -q -r requirements.txt && pytest -q
+	cd app/api && pip install -q -r requirements-dev.txt && pytest -q
 
 helm-lint:
 	helm lint charts/demo-app

@@ -7,8 +7,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 FROM python:3.12.8-slim-bookworm
-RUN groupadd --system --gid 10001 app \
- && useradd --system --uid 10001 --gid app --home /app --shell /usr/sbin/nologin app
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --home /app --shell /usr/sbin/nologin app
 WORKDIR /app
 ENV PATH="/opt/venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=8080
 COPY --from=builder /opt/venv /opt/venv
