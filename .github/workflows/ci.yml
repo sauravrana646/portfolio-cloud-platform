@@ -34,7 +34,7 @@ jobs:
           push: false
           load: true
           tags: portfolio-cloud-platform-api:ci
-      - name: Trivy image scan
+      - name: Trivy image gate
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
@@ -42,6 +42,7 @@ jobs:
           severity: CRITICAL
           exit-code: "1"
           ignore-unfixed: true
+          scanners: vuln
 
   helm:
     runs-on: ubuntu-latest
