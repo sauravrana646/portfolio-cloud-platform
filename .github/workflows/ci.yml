@@ -34,7 +34,7 @@ jobs:
           push: false
           load: true
           tags: portfolio-cloud-platform-api:ci
-      - uses: aquasecurity/trivy-action@0.30.0
+      - uses: aquasecurity/trivy-action@0.32.0
         with:
           scan-type: image
           image-ref: portfolio-cloud-platform-api:ci
