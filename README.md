@@ -1,48 +1,107 @@
 # portfolio-cloud-platform
 
-> Production-ready app platform patterns on AWS + Kubernetes — local-first, cloud-optional.
+> Production-ready app platform patterns on AWS + Kubernetes — local-first with Compose/Helm/kind, cloud-optional via Terraform (`ecs` cheap path; `eks` off by default).
 
 ## Problem this solves for a startup
 
-_TODO: fill during implementation_
+You need a real deploy path (API + worker + observability + CI) without standing up an expensive EKS cluster on day one.
 
 ## Architecture
 
 ```mermaid
-flowchart LR
-  placeholder[Scaffold] --> impl[Implementation]
+flowchart TB
+  subgraph local [Local default]
+    Compose[Docker Compose]
+    API[API /healthz /work]
+    Worker[Worker]
+    Redis[Redis]
+    Prom[Prometheus]
+    Graf[Grafana]
+    Compose --> API
+    Compose --> Worker
+    API --> Redis
+    Worker --> Redis
+    Compose --> Prom
+    Compose --> Graf
+  end
+  subgraph k8s [kind or k3d]
+    Helm[Helm demo-app]
+    Argo[Argo CD optional]
+    Helm --> API
+    Argo --> Helm
+  end
+  subgraph cloud [Opt-in AWS]
+    TF[Terraform deploy_target]
+    ECS[ECS Fargate path]
+    EKS[EKS off by default]
+    TF --> ECS
+    TF --> EKS
+  end
 ```
 
 ## Stack
 
 | Layer | Choice |
 |-------|--------|
-| TBD | TBD |
+| App | Python Flask API + Redis worker |
+| Local | Docker Compose |
+| K8s | Helm chart + optional Argo CD |
+| IaC | Terraform ≥1.5 (`local` / `ecs` / `eks`) |
+| Observability | Prometheus + Grafana (compose) |
+| CI | GitHub Actions + Trivy |
 
 ## Prerequisites
 
 - Docker / Docker Compose
-- GitHub account
+- Optional: Helm, kind/k3d, Terraform 1.5+
 
-## Quickstart
+## Quickstart (≈15 minutes)
 
 ```bash
-# Coming in next commits
+docker compose up --build -d
+curl -s http://127.0.0.1:8080/healthz
+curl -s http://127.0.0.1:8080/work
+# Grafana http://127.0.0.1:3000 (admin / admin)
+# Prometheus http://127.0.0.1:9090
+
+# Helm lint
+helm lint charts/demo-app
+
+# Terraform validate (no cloud resources with default)
+cd infra/terraform && terraform init -backend=false && terraform validate
+```
+
+### kind path
+
+```bash
+make kind-load   # requires kind cluster + helm
 ```
 
 ## What was automated
 
-_TODO_
+- Compose stack with healthchecks
+- CI: unit tests, image + Trivy, helm lint, terraform validate
+- Deploy target switch for future cloud
 
 ## Security notes
 
-- No secrets in this repository
-- Prefer OIDC over long-lived cloud keys
+- Non-root containers
+- Trivy CRITICAL fails CI
+- No secrets in repo; OIDC deploy stub commented in workflow
+- **Do not `terraform apply` without sandbox approval**
 
 ## Cost estimate / teardown
 
-Prefer local demos. Cloud paths are opt-in and documented per-repo.
+Local demo cost: ~$0 (your machine).
+
+```bash
+docker compose down -v
+# If you ever applied cloud resources:
+# cd infra/terraform && terraform destroy
+```
+
+EKS is intentionally off by default — prefer kind + optional ECS.
 
 ## Hire me for…
 
-DevOps / Cloud consulting — [sauravrana646@gmail.com](mailto:sauravrana646@gmail.com) · [github.com/sauravrana646](https://github.com/sauravrana646)
+**K8s Deploy Pack / platform path** — [sauravrana646@gmail.com](mailto:sauravrana646@gmail.com) · [github.com/sauravrana646](https://github.com/sauravrana646)
