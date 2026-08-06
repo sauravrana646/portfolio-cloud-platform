@@ -13,3 +13,10 @@ def test_work():
     r = c.get("/work")
     assert r.status_code == 200
     assert r.get_json()["ok"] is True
+
+
+def test_metrics():
+    c = app.test_client()
+    r = c.get("/metrics")
+    assert r.status_code == 200
+    assert b"demo_api_requests_total" in r.data

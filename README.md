@@ -1,8 +1,25 @@
 # portfolio-cloud-platform
 
-> Production-ready app platform patterns on AWS + Kubernetes — local-first with Compose/Helm/kind, cloud-optional via Terraform (`ecs` cheap path; `eks` off by default).
+[![CI](https://github.com/sauravrana646/portfolio-cloud-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravrana646/portfolio-cloud-platform/actions/workflows/ci.yml)
+
+> Production-ready app platform patterns on AWS + Kubernetes — local-first with Compose/Helm (OrbStack or any kubecontext), cloud-optional via Terraform (`ecs` cheap path; `eks` off by default).
 
 ![Demo: Compose stack and local /healthz](docs/images/demo.jpg)
+
+## Demo in 15 minutes
+
+```bash
+# Compose (no cluster required)
+docker compose up --build -d
+curl -s http://127.0.0.1:8080/healthz   # {"status":"ok"}
+curl -s http://127.0.0.1:8080/work
+
+# OrbStack / existing cluster (uses current kubectl context)
+make cluster-deploy
+kubectl -n demo port-forward svc/demo-api 8080:80
+# curl http://127.0.0.1:8080/healthz
+make cluster-down
+```
 
 ## Problem this solves for a startup
 
