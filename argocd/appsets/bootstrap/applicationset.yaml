@@ -21,6 +21,7 @@ spec:
           - path: charts/bootstrap-layer/infisical-secrets/app.yaml
           - path: charts/bootstrap-layer/teleport-kube-agent/app.yaml
           - path: charts/bootstrap-layer/kyverno-policies/app.yaml
+          - path: charts/bootstrap-layer/policy-reporter/app.yaml
   template:
     metadata:
       # Unique name from discovery file (required field in each app.yaml)

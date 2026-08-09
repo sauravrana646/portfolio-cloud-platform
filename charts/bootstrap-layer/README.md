@@ -16,6 +16,7 @@ Discovery: put `app.yaml` in the chart folder **and** add its path to the
 | `metrics-server` | Helm wrapper | `helm-values/bootstrap-layer/metrics-server/` |
 | `infisical-operator` | Helm wrapper | `helm-values/bootstrap-layer/infisical-operator/` |
 | `teleport-kube-agent` | Helm wrapper | `helm-values/bootstrap-layer/teleport-kube-agent/` |
+| `policy-reporter` | Helm wrapper (UI + Kyverno plugin) | `helm-values/bootstrap-layer/policy-reporter/` |
 | `infisical-secrets` | Kustomize | (in-folder) |
 | `kyverno-policies` | Kustomize → `policy/kyverno` | (in-folder) |
 

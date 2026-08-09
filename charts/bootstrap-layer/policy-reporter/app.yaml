@@ -1,0 +1,15 @@
+# Discovery contract for ApplicationSet (argocd/appsets/bootstrap)
+name: bootstrap-policy-reporter
+layer: bootstrap-layer
+chart: policy-reporter
+chartPath: charts/bootstrap-layer/policy-reporter
+valuesPath: bootstrap-layer/policy-reporter
+namespace: policy-reporter
+syncWave: "4"
+sourceType: helm
+releaseName: policy-reporter
+serverSideApply: "true"
+autoSync: "true"
+selfHeal: "true"
+prune: "true"
+finalizer: "true"

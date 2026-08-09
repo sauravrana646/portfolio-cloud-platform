@@ -30,3 +30,4 @@ kyverno:
               - infisical-system
               - monitoring
               - teleport
+              - policy-reporter

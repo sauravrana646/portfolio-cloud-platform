@@ -21,4 +21,5 @@ kyverno:
               - infisical-system
               - monitoring
               - teleport
+              - policy-reporter
               - local-path-storage
