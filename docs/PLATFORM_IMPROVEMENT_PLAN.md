@@ -1,25 +1,36 @@
 # Platform Improvement Plan — portfolio-cloud-platform
 
-This plan is for the **infra / deploy-pack case study** in `sauravrana646/portfolio-cloud-platform`. The demo Flask API + worker are only a **sample workload** so Compose, Helm, GitOps, and EKS have something real to run.
+This plan is for the **infra / deploy-pack case study** in `sauravrana646/portfolio-cloud-platform`.
 
-**This is not a supply-chain / release case study.** Promotion branches (`dev`→`uat`→`main`), GHCR signed releases, cosign, SBOM attestation, and Infisical key material belong in [`portfolio-secure-cicd`](https://github.com/sauravrana646/portfolio-secure-cicd) (see [`devops-portfolio` `docs/CICD_IMPROVEMENT_PLAN.md`](https://github.com/sauravrana646/devops-portfolio/blob/main/docs/CICD_IMPROVEMENT_PLAN.md)). Do **not** copy that release model here unless a later engagement explicitly joins the two demos.
+**Division of responsibility across portfolio demos**
 
-Scope for this plan: **local-first + EKS**. **ECS is out of scope** and should be removed from Terraform and docs.
+| Concern | Owns it |
+|---------|---------|
+| Build, Trivy gates, promotion (`dev`→`uat`→`main`), cosign sign/attest, Syft SBOM, SLSA provenance, GHCR release | [`portfolio-secure-cicd`](https://github.com/sauravrana646/portfolio-secure-cicd) |
+| Consume the **signed release image**, run it on Compose / Helm / Argo / EKS, enforce admission + cluster guardrails | **This repo** |
+
+Do **not** re-implement an app release factory here. Pin and verify artifacts that secure-cicd already publishes.
+
+Scope: **local-first + EKS**. **ECS is out of scope** (remove from Terraform and docs).
+
+**Process:** implement only after plan approval; open implementation PRs only when the user asks.
 
 ---
 
 ## Context (current state)
 
-| Area | Today | Gap vs enterprise platform pack |
-|------|-------|----------------------------------|
-| Workload | API + Redis worker; Redis list `jobs` | Fine as a stub; Helm does not deploy worker/Redis so cluster path is incomplete |
-| Local | Compose: API, worker, Redis, Prometheus, Grafana | Good 15-min demo; Grafana default password; no documented parity checklist vs Helm |
-| Helm | API Deployment + Service; staging PDB/NetworkPolicy | API-only; missing worker, Redis, ServiceAccount, ConfigMap pattern, prod values, securityContext |
-| GitOps | One Argo CD Application on chart `HEAD` | No env overlays; prod should not float on `HEAD` |
-| Terraform | `local` \| `ecs` \| `eks`; EKS is `null_resource`; ECS skeleton | No real EKS; ECS still pitched; no IRSA / add-ons / cost notes for a sandbox cluster |
-| CI | pytest, API image+Trivy (no push), helm lint, tf validate | Enough as a **platform gate** (lint/validate); missing worker image scan, `helm template`+kubeconform, tf fmt/tflint, compose config check |
-| Make / runbook | Compose + `cluster-deploy` on current kubecontext; `apply` refused | No EKS bootstrap/teardown targets; RUNBOOK weak on cluster/EKS failure modes |
-| Narrative | README/CASE_STUDY still sell ECS as cheap cloud | Should sell **local → Helm → Argo → EKS (budget-gated)** |
+| Area | Today | Gap |
+|------|-------|-----|
+| Workload | Local `app/api` + `app/worker` + Redis (`/work`, metrics) | secure-cicd image is a **single** Flask API (`/`, `/healthz`) — no Redis/worker. Stack here should align. |
+| Images | Built in-repo; CI Trivy on local Dockerfile | Should **pull** `ghcr.io/sauravrana646/portfolio-secure-cicd` by **digest** from a release (e.g. `v0.1.0`), not rebuild the app |
+| Helm | API-only chart, local image tags | Digest pin + imagePullSecrets/GHCR public pull; drop worker/Redis templates |
+| Policy | None in-cluster | No Kyverno / signature / SBOM / attestation verify at admit time |
+| Access | kubeconfig / AWS keys assumed | No JIT / zero-trust access story (Teleport or SSM/Identity Center pattern) |
+| Terraform | `local` \| `ecs` \| `eks`; EKS placeholder | Real EKS + IRSA + add-ons; ECS removed |
+| GitOps | One Argo app on `HEAD` | Per-env overlays; prod pins digest + revision |
+| Platform CI | pytest + build local image + helm lint + tf validate | Shift to: chart/IaC/policy gates + **cosign verify** of upstream digest; retire in-repo app build as primary path |
+
+Upstream artifact (today): public GHCR package [`portfolio-secure-cicd`](https://github.com/users/sauravrana646/packages/container/package/portfolio-secure-cicd), release tag `v0.1.0`, signed by digest with cosign + SPDX SBOM attestation + SLSA provenance (see that repo’s release workflow).
 
 ---
 
@@ -27,133 +38,170 @@ Scope for this plan: **local-first + EKS**. **ECS is out of scope** and should b
 
 ```mermaid
 flowchart TB
-  subgraph workload [Sample workload — not the product]
-    API[API]
-    Worker[Worker]
-    Redis[Redis]
+  subgraph supply [Upstream — portfolio-secure-cicd]
+    Rel[Signed release vX.Y.Z]
+    GHCR["ghcr.io/.../portfolio-secure-cicd@sha256:..."]
+    Rel --> GHCR
   end
 
-  subgraph local [Path A — local default $0]
-    Compose[Docker Compose<br/>full stack + Prom/Grafana]
-    Kctx[OrbStack / kind / k3d]
-    Helm[Helm chart demo-app<br/>API + worker + Redis]
-    Compose --> API
-    Compose --> Worker
-    Compose --> Redis
-    Kctx --> Helm
-    Helm --> API
-    Helm --> Worker
-    Helm --> Redis
+  subgraph local [Path A — local $0]
+    Compose[Compose pulls digest<br/>API only + Prom/Grafana]
+    HelmLocal[Helm on OrbStack/kind<br/>same digest]
+  end
+
+  subgraph admit [Admission guardrails]
+    Kyverno[Kyverno policies]
+    Verify[Verify cosign sig<br/>SBOM attest<br/>provenance]
+    Kyverno --> Verify
   end
 
   subgraph gitops [Path B — GitOps]
-    Argo[Argo CD App-of-Apps / per-env Applications]
-    Dev["env: dev values"]
-    Uat["env: uat values"]
-    Prod["env: prod values"]
-    Argo --> Dev
-    Argo --> Uat
-    Argo --> Prod
+    Argo[Argo CD per-env apps]
+    Pin[values pin image digest]
+    Argo --> Pin
   end
 
-  subgraph cloud [Path C — EKS opt-in]
-    TF["Terraform deploy_target=eks<br/>VPC + EKS + OIDC/IRSA + add-ons"]
+  subgraph cloud [Path C — EKS]
+    TF[Terraform EKS + IRSA + add-ons]
+    ZT[JIT / zero-trust access]
     TF --> Argo
+    TF --> Kyverno
+    TF --> ZT
   end
 
-  Helm -.->|same chart| Argo
-  CI[Platform CI<br/>test · image scan · helm · terraform] -.->|guards merges| Helm
-  CI -.-> TF
+  GHCR --> Compose
+  GHCR --> Pin
+  Pin --> Kyverno
+  Kyverno -->|allow/deny pods| HelmLocal
+  Kyverno -->|allow/deny pods| Argo
 ```
 
 **What “enterprise-like” means here**
 
-1. One chart, three runtimes: Compose parity locally, Helm on a laptop cluster, same chart synced by Argo on EKS.
-2. Env separation via **values overlays** (`dev` / `uat` / `prod`), not via a separate app-release factory.
-3. Cloud is a **gated Terraform module** (`deploy_target=eks`), never the default, with cost and destroy called out.
-4. CI proves the **pack is safe to merge** (tests, image CRITICAL gate, helm render/lint, terraform validate) — it does not need to publish signed product releases.
-
-Images used on EKS can be locally built, pulled from a public demo tag, or (optional, thin) pushed to GHCR **without** cosign/SBOM/changelog ceremony — point consumers at the secure-cicd repo for that story.
+1. **Consume, don’t rebuild** the product image — platform trusts the supply-chain case study’s digests.
+2. **Admit only verified images** — Kyverno (or equivalent) checks signature + SBOM/attestation before pods run.
+3. **Same chart, three runtimes** — Compose, local Helm, Argo-on-EKS.
+4. **Env promotion via GitOps values** (digest bumps), not via re-releasing the app in this repo.
+5. **Access is least-privilege and time-bound** — JIT/zero-trust pattern for humans; IRSA for workloads.
+6. Cloud remains **budget-gated**; default demo stays local.
 
 ---
 
 ## Step 0 — Scope decisions
 
-Record in the implementing PR:
-
-1. **Remove ECS** from `deploy_target`, modules, README, CASE_STUDY, SECURITY, architecture.
-2. **Keep the sample app minimal** — no product features; only changes that unblock platform (e.g. `/readyz` if Redis readiness matters).
-3. **GitOps in-repo:** `deploy/environments/{dev,uat,prod}/` (or `charts/demo-app/values-*.yaml` + `argocd/` apps). No second gitops repo unless requested.
-4. **No promotion-branch / tag-release / cosign work** in this repo’s critical path.
-5. EKS `terraform apply` remains **manual + sandbox approval**; Makefile continues to refuse blind apply.
-
----
-
-## Step 1 — Reframe docs (narrative first)
-
-Update messaging before large infra code:
-
-| Doc | Change |
-|-----|--------|
-| `README.md` | Mermaid: Compose → Helm (local context) → Argo → EKS; drop ECS; clarify sample workload vs platform pack |
-| `docs/architecture.md` | `deploy_target`: `local` \| `eks` only; env overlays; cost gate |
-| `docs/CASE_STUDY.md` | Problem/approach/results as **K8s deploy pack**; out-of-scope: supply-chain signing (link other case study), multi-region, full IDP |
-| `docs/RUNBOOK.md` | Compose + Helm + (later) EKS/Argo sections |
-| `SECURITY.md` | Local/EKS sandbox; OIDC for AWS if plan/apply added; no ECS |
-| `infra/terraform/README.md` | Align with EKS-only cloud path |
+1. **Workload alignment:** retire Redis + worker as required runtime pieces. Prefer removing `app/worker`, Redis from Compose/Helm, and `/work`-centric docs — replace with upstream API (`/`, `/healthz`). Optional: keep a thin local stub only for offline demos when GHCR is unreachable; mark it non-production.
+2. **Image source of truth:** `image.repository: ghcr.io/sauravrana646/portfolio-secure-cicd`, `image.digest: sha256:…` from a published release. Tags like `:v0.1.0` may be documented for humans; **deploy by digest**.
+3. **Remove ECS** from `deploy_target` (`local` \| `eks` only).
+4. **No app release / cosign key handling in this repo** — only **verify** using the published cosign public key (document where to fetch it: release assets, Infisical public key, or `cosign` keyless notes if applicable).
+5. EKS apply stays **manual + sandbox approval**.
+6. Implementation PRs only after user approval of this plan.
 
 ---
 
-## Step 2 — Helm chart = Compose parity (core platform deliverable)
+## Step 1 — Reframe docs + retire mismatched stack
 
-`charts/demo-app` should deploy the same app path Compose runs:
+| Doc / path | Change |
+|------------|--------|
+| `README.md` | Story: secure-cicd builds/signs → this pack deploys/verifies on Compose/Helm/Argo/EKS; drop ECS |
+| `docs/architecture.md` | Digest pin + Kyverno verify + EKS guardrails |
+| `docs/CASE_STUDY.md` | Platform pack that **consumes** a signed image; link secure-cicd for supply chain |
+| `docs/RUNBOOK.md` | Digest bump, cosign verify failure, Kyverno block, JIT access break-glass |
+| `SECURITY.md` | Trust boundary: upstream signatures; cluster policy; access model |
+| Compose / Helm / `app/` | Align to single API image; remove Redis/worker from the **required** path (delete or quarantine under `legacy/` if useful for history) |
+| Monitoring | Upstream app may lack `/metrics` — scrape what exists, or document blackbox/probes only until upstream exports metrics |
 
-1. API Deployment + Service (existing).
-2. Worker Deployment (same image build context as `app/worker`).
-3. Redis (simple in-chart Deployment/Service for demo; document “use managed Redis in real prod”).
-4. ConfigMap for non-secret config; `REDIS_URL` wired for API + worker.
-5. ServiceAccount; optional IRSA annotation values for EKS later.
-6. `securityContext` (non-root, drop caps, readOnlyRootFilesystem where feasible).
-7. Values:
-   - `values.yaml` — local / laptop cluster
-   - `values-staging.yaml` — replicas, PDB, NetworkPolicy on (extend existing)
-   - `values-prod.yaml` — stricter defaults for the prod overlay story
-8. NetworkPolicy: allow API ingress, API→Redis, worker→Redis, metrics scrape as needed.
-9. Optional HPA behind a flag — nice-to-have, not blocking.
-
-**Makefile:** `cluster-deploy` installs the full stack; `cluster-status` shows deploy/svc/pdb/netpol; keep `cluster-down`.
-
-**Acceptance:** after `make cluster-deploy`, `/work` can enqueue and the worker can consume (Redis in-cluster), matching Compose behavior.
+**Acceptance:** `docker compose up` pulls (or optionally builds fallback) and `curl /healthz` works without Redis.
 
 ---
 
-## Step 3 — Platform CI (validate the pack, don’t “release” the app)
+## Step 2 — Helm chart: deploy upstream signed image
 
-Evolve `.github/workflows/ci.yml` as a **merge gate for infra + chart + smoke app tests**:
+`charts/demo-app` becomes a thin runtime chart:
+
+1. Deployment + Service for the API only.
+2. Values:
+   - `image.repository` / `image.digest` (digest wins over tag).
+   - `image.tag` optional for local readability.
+   - `values.yaml`, `values-staging.yaml`, `values-prod.yaml` — prod **requires** digest.
+3. `securityContext`, probes on `/healthz`, resources, PDB, NetworkPolicy (uat/prod on).
+4. ServiceAccount (+ optional IRSA annotation for future AWS API calls).
+5. No Redis/worker templates.
+6. Document GHCR pull (public package today; if private later, `imagePullSecrets`).
+
+**Makefile**
+
+- `cluster-deploy` uses digest from `deploy/environments/dev/images.yaml` (or values).
+- `verify-image` target: `cosign verify` + `cosign verify-attestation` against the pinned digest (public key from documented source).
+
+**GitOps pin workflow (human):** when secure-cicd cuts `vX.Y.Z`, update digest in `deploy/environments/*/images.yaml` via PR in **this** repo.
+
+---
+
+## Step 3 — Kyverno: verify signature, SBOM, attestations
+
+Install Kyverno on local cluster (optional profile) and on EKS (required for the “enterprise” path).
+
+Suggested layout:
+
+```
+policy/
+  kyverno/
+    kustomization.yaml
+    install notes → Helm chart version pin in docs or terraform helm_release
+    policies/
+      require-signed-images.yaml
+      require-sbom-attestation.yaml
+      require-provenance-attestation.yaml   # if verifiable in-cluster
+      disallow-latest-tag.yaml
+      require-digest.yaml
+      baseline-pod-security.yaml            # harden PSS-adjacent rules
+      require-non-root.yaml
+      readonly-rootfs.yaml                  # warn or enforce where compatible
+```
+
+**Policy intent (enforce on `demo`, `demo-uat`, `demo-prod`; audit on `demo-dev` first)**
+
+| Policy | Behavior |
+|--------|----------|
+| Signed images | Only allow images from `ghcr.io/sauravrana646/portfolio-secure-cicd` that pass cosign verify with the known public key |
+| SBOM attestation | Require SPDX SBOM attestation (type matching what secure-cicd attaches) |
+| Provenance | Prefer verify GitHub / SLSA provenance attestation where Kyverno/cosign support is practical; if in-cluster verify is awkward, document `cosign verify-attestation` in CI/Makefile and enforce signature+SBOM in Kyverno first |
+| No `:latest` | Deny mutable tags in uat/prod |
+| Digest required | Deployments must use `@sha256:` |
+
+Wire Kyverno image verification to pull cosign public key from a ConfigMap/Secret created by bootstrap (public key is not sensitive; still treat rotation as a controlled change).
+
+**Bootstrap order:** Kyverno + policies **before** app sync in Argo (App-of-Apps: `platform-policies` then `demo-*`).
+
+**Negative demo (sales):** deploy an unsigned or wrong-digest image → Kyverno blocks; contrast with pinned release digest.
+
+---
+
+## Step 4 — Platform CI (gates for chart, policy, IaC — not app release)
 
 | Job | Purpose |
 |-----|---------|
-| `test-api` | Existing pytest |
-| `test-worker` | Small worker test (mock Redis) so the workload does not rot |
-| `image-api` / `image-worker` | Build + Trivy CRITICAL (still `push: false` unless a later optional GHCR step is needed for EKS demos) |
-| `helm` | `helm lint` + `helm template` for local/staging/prod values + **kubeconform** (or equivalent) |
-| `terraform` | `fmt -check`, `init -backend=false`, `validate` (local + eks var files if validate-clean without creds) |
+| `helm` | lint + template (dev/uat/prod) + kubeconform |
+| `kyverno-test` | `kyverno apply` / policy tests against fixture Pods (good digest vs bad) |
+| `verify-upstream-image` | On schedule or when `images.yaml` changes: `cosign verify` + attestation verify for pinned digest |
+| `terraform` | fmt-check, validate (`local` and `eks`) |
 | `compose-config` | `docker compose config -q` |
+| `gitleaks` / secret scan | optional cheap guard |
 
-Triggers can stay `push`/`pull_request` on `main` (and PRs). **No** requirement for `dev`/`uat` long-lived promotion branches in this case study.
+**Remove or demote** “build local API Dockerfile + Trivy” as the primary gate once the chart no longer builds in-repo app images. If a local fallback Dockerfile remains, scan it in a non-blocking or clearly labeled job.
 
-Optional later: `workflow_dispatch` Terraform plan against AWS OIDC — still not a release pipeline.
+No tag-release / GHCR push / Infisical cosign **signing** jobs here.
 
 ---
 
-## Step 4 — GitOps layout (Argo CD)
-
-Replace the single HEAD Application with an enterprise-shaped but still demo-sized layout:
+## Step 5 — GitOps (Argo CD)
 
 ```
 argocd/
-  root.yaml                 # optional App-of-Apps
+  root.yaml
   applications/
+    platform-kyverno.yaml      # policies first
+    platform-access.yaml       # optional JIT/agent system namespace
     demo-dev.yaml
     demo-uat.yaml
     demo-prod.yaml
@@ -161,122 +209,172 @@ deploy/environments/
   dev/values.yaml
   uat/values.yaml
   prod/values.yaml
+  */images.yaml                # digest pins
+policy/kyverno/                # as above
 ```
 
-Conventions:
+- `dev`: auto-sync; Kyverno in **Audit** or softer enforce for fast demos.
+- `uat`/`prod`: auto or manual sync; Kyverno **Enforce**; digest required.
+- Prod Application `targetRevision: main` (or release git tag of *this* repo’s config) — not floating random branches.
 
-- All apps point at **this chart**; differ only by values and destination namespace (`demo-dev`, `demo-uat`, `demo-prod`).
-- `dev`: automated sync + selfHeal (playground).
-- `uat` / `prod`: automated or manual sync per taste; **prod must not track floating `HEAD` of arbitrary branches** — pin to `main` (or a known revision) and values that do not use `:latest` once images are stable.
-- Document bootstrap: install Argo on OrbStack/kind **or** on EKS after Terraform; `kubectl apply -f argocd/`.
-
-This is the GitOps story hiring managers expect from a platform pack — env promotion via **merged values changes**, not via a product release workflow.
+Promotion = PR that bumps digest in env values after a secure-cicd release.
 
 ---
 
-## Step 5 — Terraform: real EKS, delete ECS
+## Step 6 — Terraform EKS (real module, no ECS)
 
-1. Remove `modules/ecs` and all `ecs` branches in `main.tf` / variables / outputs / docs.
-2. Replace `modules/eks` `null_resource` with a **minimal real module**:
-   - Reuse/extend VPC (call out public subnets + NAT cost if required).
-   - EKS cluster + small managed node group (e.g. desired 1, max 2, cost-aware instance type) **or** a single Fargate profile — pick one and document why.
-   - Cluster OIDC provider for IRSA.
-   - Add-ons: vpc-cni, coredns, kube-proxy; note AWS LB Controller as follow-on.
-   - Outputs: cluster name, endpoint, OIDC ARN, kubeconfig command.
-3. Keep default `deploy_target=local` (no AWS resources).
-4. Keep Makefile `apply` refusal; document sandbox-only apply + destroy.
-5. `terraform.tfvars.example` with `deploy_target = "local"`.
-6. README cost table: local $0; EKS sandbox ballpark + “destroy when done”.
-
-CI continues to **validate**; it does not apply.
+1. Delete ECS module and all `ecs` references.
+2. EKS module (minimal, cost-aware):
+   - VPC (document NAT cost).
+   - Managed node group small footprint **or** Fargate — pick one; document.
+   - OIDC provider + example IRSA role for the app SA (even if app needs no AWS APIs yet).
+   - Add-ons: vpc-cni, coredns, kube-proxy; optional AWS LB Controller.
+   - Optional: `helm_release` for Kyverno **or** leave Kyverno to Argo (prefer Argo for GitOps purity; Terraform only for cluster + critical CNI).
+3. Defaults: `deploy_target=local`.
+4. Makefile `apply` remains refused; destroy documented.
+5. Outputs: cluster name, endpoint, OIDC, kubeconfig command.
 
 ---
 
-## Step 6 — Optional AWS plan workflow (still not a release)
+## Step 7 — Zero-trust & JIT access (human path)
 
-Only if demonstrating enterprise IaC PR flow:
+Goal: show enterprise **break-glass / time-bound access**, not permanent `system:masters` kubeconfigs in laptops.
 
-- `terraform-plan.yml` on PRs that touch `infra/**`, using GitHub OIDC → AWS role, environment `aws-sandbox`, plan comment on PR.
-- `terraform-apply.yml` as `workflow_dispatch` + required reviewer — never on push to `main`.
+Pick **one primary demo** (keep the rest as “engagement add-ons” in docs):
 
-No tag-driven release job. No cosign. No changelog automation.
+### Recommended primary: Teleport (or similar) for K8s JIT
+
+- Run Teleport (or Cloud) agent on EKS; RBAC maps SSO groups → Kubernetes groups.
+- Short-lived certs for `kubectl`; session recording mentioned in CASE_STUDY.
+- Local OrbStack path can skip Teleport; document “full JIT on EKS profile.”
+
+### Strong AWS-native alternative (if Teleport is too heavy)
+
+- **IAM Identity Center** (SSO) + EKS Access Entries / team roles.
+- **SSM Session Manager** for node access (no SSH bastion).
+- **No long-lived access keys**; GitHub Actions → AWS via **OIDC** for terraform plan/apply.
+- Document **break-glass** role with approval + CloudTrail.
+
+### Supporting zero-trust controls (include in pack)
+
+| Control | Implementation sketch |
+|---------|----------------------|
+| Workload identity | IRSA; no static AWS keys in Secrets |
+| Network | NetworkPolicy default-deny in uat/prod; optional Cilium notes |
+| Ingress auth | oauth2-proxy / AWS ALB OIDC for any demo UI (Grafana) |
+| Secrets | External Secrets Operator → AWS SM or Infisical (stub Interface); no plaintext prod secrets in git |
+| Admission | Kyverno (above) + Pod Security `restricted`/`baseline` labels on namespaces |
+| Audit | EKS control plane logging to CloudWatch; document retention |
+| Image trust | Signature + SBOM attest verify |
+| Supply chain at deploy | Digest pins in GitOps only |
+
+Avoid boiling the ocean: ship **Kyverno verify + IRSA + NetworkPolicy + OIDC for CI/Terraform + one JIT story (Teleport *or* Identity Center/SSM)** in the first enterprise slice. List others as phase-2.
 
 ---
 
-## Step 7 — Observability & runbooks (platform ops)
+## Step 8 — Broader enterprise hardening (best-practice checklist)
 
-- Keep Compose Prometheus/Grafana as the zero-cost observability story.
-- Add a simple Grafana dashboard JSON under `monitoring/dashboards/` for `demo_api_requests_total`.
-- For cluster: document scrape annotations or ServiceMonitor if someone installs kube-prometheus-stack; do not require a full observability stack inside the chart for v1.
-- RUNBOOK additions: ImagePullBackOff with in-cluster Redis, Argo sync stuck, EKS kubeconfig, `terraform destroy`, Helm rollback.
-- Optional app tweak: `/readyz` fails when Redis is configured but unreachable (better K8s readiness).
+Include or explicitly backlog with a one-line “why”:
+
+**Cluster / workload**
+
+- Namespace per env; ResourceQuota + LimitRange
+- PodDisruptionBudget on prod API
+- Readiness/liveness on `/healthz`
+- `automountServiceAccountToken: false` unless needed
+- Seccomp RuntimeDefault; drop all caps; non-root
+- Topology spread / anti-affinity optional for prod values
+
+**Data / config**
+
+- External Secrets (or SOPS) pattern; `.env` gitignored for Compose
+- Grafana admin password not hard-coded for shared envs
+
+**IaC / CI**
+
+- `terraform fmt`, validate, optional tflint + checkov/tfsec in CI
+- Pin Terraform providers and Helm chart versions
+- Pin GitHub Actions to SHAs over time
+- Protected GitHub Environment for `terraform apply` (manual approval)
+
+**Observability / ops**
+
+- Compose Prom/Grafana remain local default
+- On EKS: document kube-prometheus-stack or Container Insights as optional
+- RUNBOOK: Kyverno block, digest rollback (revert GitOps PR), destroy EKS
+
+**Cost / safety**
+
+- Default local; EKS sandbox only; destroy checklist
+- Makefile refuses unattended apply
 
 ---
 
-## Step 8 — Security baseline (cluster-focused)
+## Step 9 — Optional AWS plan workflow
 
-- Chart `securityContext` + NetworkPolicy on for uat/prod values.
-- Non-root images (already); scan both API and worker in CI.
-- Compose: document overriding Grafana admin password via `.env` (gitignored).
-- Prefer OIDC over static AWS keys for any Terraform workflow.
-- Explicitly defer image signing / SBOM / provenance to the secure-cicd case study (one sentence + link in CASE_STUDY / README).
+- `terraform-plan.yml`: PR + OIDC + `aws-sandbox` environment, plan comment.
+- `terraform-apply.yml`: `workflow_dispatch` + required reviewers only.
+
+Still not an app release pipeline.
 
 ---
 
-## Suggested PR slices
+## Suggested implementation order (after approval)
 
-1. Docs reframe + ECS deprecation (this plan + README/architecture/case study).
-2. Helm full stack (API + worker + Redis) + Makefile/RUNBOOK parity.
-3. Platform CI expansion (worker test, both images, kubeconform, tf fmt).
-4. Argo per-env apps + `deploy/environments/*` overlays.
-5. Terraform: remove ECS; real EKS module; cost/destroy docs.
-6. Optional: OIDC terraform plan; observability dashboard; `/readyz`.
+1. Docs reframe + stack alignment (drop Redis/worker from required path; pin upstream image by digest in values).
+2. Helm + Compose consume `ghcr.io/sauravrana646/portfolio-secure-cicd@sha256:…`; Makefile `verify-image`.
+3. Kyverno install manifests + policies (signature/SBOM/digest) + policy tests in CI.
+4. Argo App-of-Apps (policies then demo envs) + `deploy/environments/*/images.yaml`.
+5. Terraform: remove ECS; real EKS; IRSA; logging; cost docs.
+6. JIT/zero-trust slice (Teleport **or** Identity Center/SSM + EKS access entries) + SECURITY/RUNBOOK.
+7. Platform CI finalization (kyverno-test, cosign verify on pin changes, tfsec/checkov optional).
+8. Polish: quotas, PSS labels, External Secrets stub, Grafana auth note.
 
 ---
 
 ## Validation
 
+**Upstream trust**
+
+- Pinned digest matches a secure-cicd GitHub Release.
+- `cosign verify` and SBOM attestation verify succeed with documented public key.
+- Unsigned image deploy is **blocked** by Kyverno (EKS or local policy profile).
+
 **Local**
 
-- `docker compose up --build -d` → healthz/work/metrics.
-- `make cluster-deploy` → API + worker + Redis Ready; work enqueues end-to-end; `make cluster-down` cleans up.
-
-**CI**
-
-- PR fails on CRITICAL image vulns, bad Helm render, or invalid Terraform.
-- PR does **not** need GHCR push, cosign, or GitHub Releases to be “green.”
+- Compose/Helm run API from GHCR digest; `/healthz` OK; no Redis required.
+- `make cluster-down` cleans up.
 
 **GitOps**
 
-- Applying Argo apps creates three namespaces/apps with distinct values; changing a values file is the promotion mechanism.
+- Digest bump PR updates env; Argo syncs; old digest rollback via git revert.
 
-**EKS (sandbox, manual)**
+**EKS sandbox**
 
-- `terraform plan -var='deploy_target=eks'` shows a real cluster plan.
-- Approved apply → kubectl + Argo sync sample workload.
-- `terraform destroy` tears down; docs warn about cost.
+- Plan/apply (approved) brings up cluster; Kyverno + app healthy; JIT path can request short-lived access; `terraform destroy` works.
 
-**Negative**
+**CI**
 
-- `make apply` still refuses.
-- No ECS module/paths remain.
+- Policy unit tests fail on fixtures missing signatures/digests.
+- No requirement to publish images from this repo.
 
 ---
 
 ## Assumptions / open items
 
-- Sample workload stays intentionally small; polish goes into chart, GitOps, and Terraform.
-- EKS is optional; CI and the 15-minute demo must work with **zero AWS**.
-- Branch protection on `main` (PR + CI green) is enough; multi-stage git promotion is **out of scope** here.
-- Managed Redis, multi-AZ NAT, ALB/WAF, and Kyverno/OPA are follow-ons — mention as “what a real engagement adds,” not v1 blockers.
-- If a future demo must pull images on EKS from GHCR, a thin “build & push on `main`” job is acceptable; keep it clearly secondary to the platform story and unsigned unless cross-linking secure-cicd.
+- secure-cicd GHCR package stays **public** (or pull credentials documented).
+- Cosign **public** key availability for verify (release notes, repo docs, or Infisical public material) — confirm exact distribution path with the secure-cicd release layout.
+- In-cluster verify of GitHub SLSA provenance may lag signature+SBOM; phase policies accordingly.
+- Teleport vs AWS-native JIT: **user picks one** before implementation Step 7.
+- Upstream app has no Redis and may lack Prometheus metrics — monitoring story adapts (probes + optional blackbox).
+- EKS cost is real; local path must remain the default demo.
 
 ---
 
 ## Out of scope (explicit)
 
-- App release trains, semver tags, cosign, SBOM attestation, SLSA provenance, Infisical cosign keys
-- `dev` / `uat` / `main` promotion-guard workflows (other case study)
-- ECS / Fargate path
-- Multi-region HA, full IDP (Backstage), 24/7 managed ops
-- Turning the Flask stub into a real product
+- Rebuilding/signing the app or storing cosign **private** keys in this repo
+- Re-implementing `dev`→`uat`→`main` promotion for application code (lives upstream)
+- ECS/Fargate
+- Multi-region HA, full IDP/Backstage, 24/7 managed ops
+- Keeping Redis/worker as a first-class platform dependency once aligned to secure-cicd
