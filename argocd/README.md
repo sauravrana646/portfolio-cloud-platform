@@ -86,6 +86,7 @@ greedy and can emit duplicate Application names.
 | 1 | infisical-operator |
 | 2 | infisical-secrets, teleport-kube-agent (manual until configured) |
 | 3 | kyverno-policies |
+| 4 | policy-reporter (UI + Kyverno plugin) |
 | 10 | workload apps from the env root you applied |
 
 ## Before first sync

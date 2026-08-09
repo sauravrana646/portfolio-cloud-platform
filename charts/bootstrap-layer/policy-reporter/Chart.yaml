@@ -1,0 +1,10 @@
+apiVersion: v2
+name: policy-reporter
+description: Wrapper chart — Kyverno Policy Reporter + UI (bootstrap)
+type: application
+version: 0.1.0
+appVersion: "3.9.0"
+dependencies:
+  - name: policy-reporter
+    version: 3.9.1
+    repository: https://kyverno.github.io/policy-reporter

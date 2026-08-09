@@ -144,6 +144,7 @@ discovers `charts/bootstrap-layer/*/app.yaml` and installs (by sync wave):
 | 1 | Infisical secrets-operator |
 | 2 | InfisicalSecret (git CR uses K8s auth placeholder), Teleport (manual) |
 | 3 | Kyverno ClusterPolicies |
+| 4 | Policy Reporter UI (+ Kyverno plugin) |
 
 ```bash
 kubectl -n argocd get applicationset charts-bootstrap
@@ -151,6 +152,9 @@ kubectl -n argocd get applications -l platform.env=bootstrap
 kubectl -n infisical-system get pods   # wait Ready
 kubectl -n kyverno get pods
 kubectl -n monitoring get pods
+kubectl -n policy-reporter get pods
+# UI: kubectl -n policy-reporter port-forward svc/policy-reporter-ui 8082:8080
+# then open http://127.0.0.1:8082
 ```
 
 **Teleport** stays unsynced until configured (`autoSync: false`). Leave it.
@@ -258,6 +262,10 @@ kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80
 
 # Prometheus
 kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090:9090
+
+# Policy Reporter UI (Kyverno PolicyReports / ClusterPolicies)
+kubectl -n policy-reporter port-forward svc/policy-reporter-ui 8082:8080
+# http://127.0.0.1:8082
 ```
 
 Argo UI (typical OrbStack / port-forward install):
