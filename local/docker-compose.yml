@@ -3,7 +3,7 @@
 # Or: make up
 services:
   api:
-    image: ${IMAGE_REF:-ghcr.io/sauravrana646/portfolio-secure-cicd@sha256:a407de4528243789ae9784099afbca03e066dcb9092f05f9ef3060b23145f1e3}
+    image: ${IMAGE_REF:-ghcr.io/sauravrana646/portfolio-secure-cicd@sha256:07e4bb93fa9734d2a2ef1dbfe942a447585c732907d9b9f5130f43787faf0f54}
     ports:
       - "8080:8080"
     healthcheck:

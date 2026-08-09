@@ -2,9 +2,9 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/sauravrana646/portfolio-secure-cicd
-  tag: v0.1.0
+  tag: v0.2.0
   # When set, Deployment uses repository@digest (preferred for uat/prod).
-  digest: sha256:a407de4528243789ae9784099afbca03e066dcb9092f05f9ef3060b23145f1e3
+  digest: sha256:07e4bb93fa9734d2a2ef1dbfe942a447585c732907d9b9f5130f43787faf0f54
   pullPolicy: IfNotPresent
 
 service:
