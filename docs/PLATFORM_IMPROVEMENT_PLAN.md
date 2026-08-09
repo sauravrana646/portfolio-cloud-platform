@@ -452,6 +452,7 @@ Rough guidance for a **sandbox** account. Local-only demo stays **~$0**.
 
 - Compose/Helm run API from GHCR digest; `/healthz` OK; no Redis required.
 - `make bootstrap-down` / `make down` cleans up local paths.
+- OrbStack + Argo: Policy Reporter UI; Kyverno deny/allow on `demo-app-dev`; multi-arch pin.
 
 **GitOps**
 
