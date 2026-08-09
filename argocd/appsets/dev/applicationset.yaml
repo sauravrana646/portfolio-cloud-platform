@@ -1,27 +1,19 @@
-# Generic App-of-Apps: discovers charts via app.yaml / apps/*.yaml.
-# Add a chart under charts/{bootstrap-layer,applications}/ + matching
-# helm-values/ path + discovery file → Application is created automatically.
+# Discovers charts/applications/*/apps/dev.yaml only — used by root-dev.yaml.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: charts
+  name: charts-dev
   namespace: argocd
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=default"]
   generators:
-    # One Application per bootstrap chart (charts/bootstrap-layer/<chart>/app.yaml)
     - git:
         repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
         revision: main
         files:
-          - path: charts/bootstrap-layer/*/app.yaml
-    # One Application per workload env (charts/applications/<chart>/apps/<env>.yaml)
-    - git:
-        repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
-        revision: main
-        files:
-          - path: charts/applications/*/apps/*.yaml
+          - path: charts/applications/*/apps/dev.yaml
+
   template:
     metadata:
       name: "{{ .name }}"
@@ -29,9 +21,10 @@ spec:
       annotations:
         argocd.argoproj.io/sync-wave: '{{ default "0" .syncWave }}'
       labels:
-        app.kubernetes.io/managed-by: charts-applicationset
+        app.kubernetes.io/managed-by: charts-dev-applicationset
         platform.layer: "{{ .layer }}"
         platform.chart: "{{ .chart }}"
+        platform.env: "dev"
     spec:
       project: default
       destination:
@@ -40,7 +33,6 @@ spec:
       syncPolicy:
         syncOptions:
           - CreateNamespace=true
-  # Optional fields (source type, autosync, SSA, finalizer, teleport) patched in.
   templatePatch: |
     metadata:
       {{- if ne (toString (default "true" .finalizer)) "false" }}
@@ -90,3 +82,4 @@ spec:
           jqPathExpressions:
             - '.spec.template.spec.containers[] | select(.name == "teleport").image'
       {{- end }}
+

@@ -2,7 +2,8 @@
 
 Workload charts (not platform prerequisites).
 
-Discovery: add `apps/<env>.yaml` under the chart. The ApplicationSet creates
+Discovery: add `apps/<env>.yaml` under the chart, then apply the matching root
+(`argocd/root-dev.yaml` only picks up `apps/dev.yaml`, etc.). Creates
 `<chart>-<env>` (namespace `<chart>-<env>`).
 
 | Chart | Envs | Values |

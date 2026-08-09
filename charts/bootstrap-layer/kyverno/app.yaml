@@ -1,4 +1,4 @@
-# Discovery contract for ApplicationSet (argocd/appsets/charts.yaml)
+# Discovery contract for ApplicationSet (argocd/appsets/bootstrap)
 name: bootstrap-kyverno
 layer: bootstrap-layer
 chart: kyverno

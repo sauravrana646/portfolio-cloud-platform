@@ -1,0 +1,85 @@
+# Discovers charts/bootstrap-layer/*/app.yaml (platform prerequisites).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: charts-bootstrap
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=default"]
+  generators:
+    - git:
+        repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
+        revision: main
+        files:
+          - path: charts/bootstrap-layer/*/app.yaml
+
+  template:
+    metadata:
+      name: "{{ .name }}"
+      namespace: argocd
+      annotations:
+        argocd.argoproj.io/sync-wave: '{{ default "0" .syncWave }}'
+      labels:
+        app.kubernetes.io/managed-by: charts-bootstrap-applicationset
+        platform.layer: "{{ .layer }}"
+        platform.chart: "{{ .chart }}"
+        platform.env: "bootstrap"
+    spec:
+      project: default
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ .namespace }}"
+      syncPolicy:
+        syncOptions:
+          - CreateNamespace=true
+  templatePatch: |
+    metadata:
+      {{- if ne (toString (default "true" .finalizer)) "false" }}
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      {{- end }}
+    spec:
+      {{- if eq (default "helm" .sourceType) "directory" }}
+      source:
+        repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
+        targetRevision: main
+        path: "{{ .chartPath }}"
+      {{- else }}
+      sources:
+        - repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
+          targetRevision: main
+          ref: values
+        - repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
+          targetRevision: main
+          path: "{{ .chartPath }}"
+          helm:
+            releaseName: '{{ default .chart .releaseName }}'
+            valueFiles:
+              - $values/helm-values/{{ .valuesPath }}/values.yaml
+              {{- if .env }}
+              - $values/helm-values/{{ .valuesPath }}/environments/{{ .env }}/values.yaml
+              {{- if eq (toString (default "false" .imagePin)) "true" }}
+              - $values/helm-values/{{ .valuesPath }}/environments/{{ .env }}/images.yaml
+              {{- end }}
+              {{- end }}
+      {{- end }}
+      syncPolicy:
+        {{- if ne (toString (default "true" .autoSync)) "false" }}
+        automated:
+          prune: {{ ne (toString (default "true" .prune)) "false" }}
+          selfHeal: {{ ne (toString (default "true" .selfHeal)) "false" }}
+        {{- end }}
+        syncOptions:
+          - CreateNamespace=true
+          {{- if eq (toString (default "false" .serverSideApply)) "true" }}
+          - ServerSideApply=true
+          {{- end }}
+      {{- if eq .chart "teleport-kube-agent" }}
+      ignoreDifferences:
+        - group: apps
+          kind: StatefulSet
+          jqPathExpressions:
+            - '.spec.template.spec.containers[] | select(.name == "teleport").image'
+      {{- end }}
+
