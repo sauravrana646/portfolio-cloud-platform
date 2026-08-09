@@ -49,9 +49,14 @@ flowchart TB
     HelmLocal[Helm on OrbStack/kind<br/>same digest]
   end
 
+  subgraph secrets [Infisical — verify material]
+    Inf["Infisical /cosign<br/>cosign-public-key<br/>(OIDC machine identity)"]
+  end
+
   subgraph admit [Admission guardrails]
     Kyverno[Kyverno policies]
     Verify[Verify cosign sig<br/>SBOM attest<br/>provenance]
+    Inf --> Verify
     Kyverno --> Verify
   end
 
@@ -72,6 +77,8 @@ flowchart TB
   GHCR --> Compose
   GHCR --> Pin
   Pin --> Kyverno
+  Inf -->|CI cosign verify| Pin
+  Inf -->|K8s Secret/ConfigMap sync| Kyverno
   Kyverno -->|allow/deny pods| HelmLocal
   Kyverno -->|allow/deny pods| Argo
 ```
@@ -79,7 +86,7 @@ flowchart TB
 **What “enterprise-like” means here**
 
 1. **Consume, don’t rebuild** the product image — platform trusts the supply-chain case study’s digests.
-2. **Admit only verified images** — Kyverno (or equivalent) checks signature + SBOM/attestation before pods run.
+2. **Admit only verified images** — Kyverno checks signature + SBOM/attestation; **cosign public key always comes from Infisical** (same project/path the release signer uses).
 3. **Same chart, three runtimes** — Compose, local Helm, Argo-on-EKS.
 4. **Env promotion via GitOps values** (digest bumps), not via re-releasing the app in this repo.
 5. **Access is least-privilege and time-bound** — JIT/zero-trust pattern for humans; IRSA for workloads.
@@ -92,7 +99,7 @@ flowchart TB
 1. **Workload alignment:** retire Redis + worker as required runtime pieces. Prefer removing `app/worker`, Redis from Compose/Helm, and `/work`-centric docs — replace with upstream API (`/`, `/healthz`). Optional: keep a thin local stub only for offline demos when GHCR is unreachable; mark it non-production.
 2. **Image source of truth:** `image.repository: ghcr.io/sauravrana646/portfolio-secure-cicd`, `image.digest: sha256:…` from a published release. Tags like `:v0.1.0` may be documented for humans; **deploy by digest**.
 3. **Remove ECS** from `deploy_target` (`local` \| `eks` only).
-4. **No app release / cosign key handling in this repo** — only **verify** using the published cosign public key (document where to fetch it: release assets, Infisical public key, or `cosign` keyless notes if applicable).
+4. **No cosign private keys in this repo.** Verification uses **Infisical** as the sole source of `cosign-public-key` (OIDC machine identity). Private key + password remain only in the secure-cicd release path.
 5. EKS apply stays **manual + sandbox approval**.
 6. Implementation PRs only after user approval of this plan.
 
@@ -131,9 +138,31 @@ flowchart TB
 **Makefile**
 
 - `cluster-deploy` uses digest from `deploy/environments/dev/images.yaml` (or values).
-- `verify-image` target: `cosign verify` + `cosign verify-attestation` against the pinned digest (public key from documented source).
+- `verify-image` target: fetch `cosign-public-key` from **Infisical** (CLI or documented env), then `cosign verify` + `cosign verify-attestation` on the pinned digest.
 
 **GitOps pin workflow (human):** when secure-cicd cuts `vX.Y.Z`, update digest in `deploy/environments/*/images.yaml` via PR in **this** repo.
+
+---
+
+## Step 2b — Infisical for cosign **verification** (required)
+
+Align with secure-cicd’s Infisical layout so one secrets project serves sign (upstream) and verify (this pack):
+
+| Item | Value |
+|------|--------|
+| Project | Same as release signer (e.g. `devops-portfolio-x-k3-y` / `homelab-sq-te` — confirm at implement time against secure-cicd docs) |
+| Secret path | `/cosign` |
+| Secrets used **here** | `cosign-public-key` (**required** for verify). Do **not** fetch or mount `cosign-private-key` / `cosign-key-password` in this repo. |
+| Auth | Machine identity + **OIDC** (`Infisical/secrets-action` in GitHub Actions; Infisical Kubernetes Operator or Agent on cluster) |
+| Env slug | Map per runtime: e.g. CI/verify → `prod` public key (release key), or shared `/cosign` across envs if one keypair |
+
+**Where Infisical is used**
+
+1. **GitHub Actions** (`verify-upstream-image` job): OIDC → Infisical → export public key → `cosign verify` / `verify-attestation` on pinned `IMAGE_REF`.
+2. **Makefile `verify-image`:** local operator uses Infisical CLI (`infisical run` / export) — never commit the PEM.
+3. **Cluster:** Infisical Operator syncs `cosign-public-key` into a namespace Secret/ConfigMap that Kyverno `verifyImages` references. Rotation = update Infisical + re-sync; no git rewrite of key material.
+
+Document identity IDs as GitHub Environment variables / repo variables (same pattern as secure-cicd `release` env), not as plaintext in YAML.
 
 ---
 
@@ -149,29 +178,27 @@ policy/
     kustomization.yaml
     install notes → Helm chart version pin in docs or terraform helm_release
     policies/
-      require-signed-images.yaml
+      require-signed-images.yaml      # key from Infisical-synced Secret
       require-sbom-attestation.yaml
       require-provenance-attestation.yaml   # if verifiable in-cluster
       disallow-latest-tag.yaml
       require-digest.yaml
-      baseline-pod-security.yaml            # harden PSS-adjacent rules
+      baseline-pod-security.yaml
       require-non-root.yaml
-      readonly-rootfs.yaml                  # warn or enforce where compatible
+      readonly-rootfs.yaml
 ```
 
 **Policy intent (enforce on `demo`, `demo-uat`, `demo-prod`; audit on `demo-dev` first)**
 
 | Policy | Behavior |
 |--------|----------|
-| Signed images | Only allow images from `ghcr.io/sauravrana646/portfolio-secure-cicd` that pass cosign verify with the known public key |
+| Signed images | Only allow `ghcr.io/sauravrana646/portfolio-secure-cicd` images that pass cosign verify with the **Infisical-synced** public key |
 | SBOM attestation | Require SPDX SBOM attestation (type matching what secure-cicd attaches) |
-| Provenance | Prefer verify GitHub / SLSA provenance attestation where Kyverno/cosign support is practical; if in-cluster verify is awkward, document `cosign verify-attestation` in CI/Makefile and enforce signature+SBOM in Kyverno first |
+| Provenance | Prefer in-cluster provenance verify when practical; else CI `cosign verify-attestation` via Infisical key + Kyverno enforce sig+SBOM first |
 | No `:latest` | Deny mutable tags in uat/prod |
 | Digest required | Deployments must use `@sha256:` |
 
-Wire Kyverno image verification to pull cosign public key from a ConfigMap/Secret created by bootstrap (public key is not sensitive; still treat rotation as a controlled change).
-
-**Bootstrap order:** Kyverno + policies **before** app sync in Argo (App-of-Apps: `platform-policies` then `demo-*`).
+**Bootstrap order:** Infisical Operator (public key sync) → Kyverno + policies → app sync (App-of-Apps).
 
 **Negative demo (sales):** deploy an unsigned or wrong-digest image → Kyverno blocks; contrast with pinned release digest.
 
@@ -183,14 +210,14 @@ Wire Kyverno image verification to pull cosign public key from a ConfigMap/Secre
 |-----|---------|
 | `helm` | lint + template (dev/uat/prod) + kubeconform |
 | `kyverno-test` | `kyverno apply` / policy tests against fixture Pods (good digest vs bad) |
-| `verify-upstream-image` | On schedule or when `images.yaml` changes: `cosign verify` + attestation verify for pinned digest |
+| `verify-upstream-image` | On `images.yaml` changes (+ optional schedule): **Infisical OIDC** → public key → `cosign verify` + attestation verify for pinned digest |
 | `terraform` | fmt-check, validate (`local` and `eks`) |
 | `compose-config` | `docker compose config -q` |
 | `gitleaks` / secret scan | optional cheap guard |
 
 **Remove or demote** “build local API Dockerfile + Trivy” as the primary gate once the chart no longer builds in-repo app images. If a local fallback Dockerfile remains, scan it in a non-blocking or clearly labeled job.
 
-No tag-release / GHCR push / Infisical cosign **signing** jobs here.
+No tag-release / GHCR push / Infisical cosign **signing** (private key) jobs here — verify-only.
 
 ---
 
@@ -262,10 +289,10 @@ Pick **one primary demo** (keep the rest as “engagement add-ons” in docs):
 | Workload identity | IRSA; no static AWS keys in Secrets |
 | Network | NetworkPolicy default-deny in uat/prod; optional Cilium notes |
 | Ingress auth | oauth2-proxy / AWS ALB OIDC for any demo UI (Grafana) |
-| Secrets | External Secrets Operator → AWS SM or Infisical (stub Interface); no plaintext prod secrets in git |
+| Secrets | Infisical Operator for cosign public key (+ optional app secrets); no plaintext prod secrets in git |
 | Admission | Kyverno (above) + Pod Security `restricted`/`baseline` labels on namespaces |
 | Audit | EKS control plane logging to CloudWatch; document retention |
-| Image trust | Signature + SBOM attest verify |
+| Image trust | Cosign verify with **Infisical** public key + SBOM attest |
 | Supply chain at deploy | Digest pins in GitOps only |
 
 Avoid boiling the ocean: ship **Kyverno verify + IRSA + NetworkPolicy + OIDC for CI/Terraform + one JIT story (Teleport *or* Identity Center/SSM)** in the first enterprise slice. List others as phase-2.
@@ -319,16 +346,103 @@ Still not an app release pipeline.
 
 ---
 
+## Step 10 — Polish & completeness (recommended add-ons)
+
+Items that make the case study feel “finished” without changing the core story. Prioritize **P1** for the first implementation pass; **P2** after the happy path works.
+
+### P1 — high polish, low scope creep
+
+| Add-on | Why |
+|--------|-----|
+| One-command demo script (`scripts/demo.sh`) | Compose up → verify-image (Infisical) → curl healthz → optional Helm |
+| `docs/DEMO_SCRIPT.md` (5–10 min talk track) | Interview / sales reproducibility |
+| Before/after or “policy deny” screenshot in `docs/images/` | Shows Kyverno value instantly |
+| Dependabot/Renovate for Actions, Terraform providers, Helm chart deps | Keeps the pack alive |
+| `CONTRIBUTING.md` + issue/PR templates | Signals maintained project |
+| Infracost or simple **cost table in README** (always-on) | Matches “cost-aware platform” pitch |
+| KIND smoke job in CI (helm install + curl via port-forward) | Proves chart works without AWS |
+| Golden `helm template` fixtures | Catches accidental manifest drift |
+| STATUS badges (CI, policy tests) on README | Portfolio skim value |
+
+### P2 — enterprise depth (phase after core)
+
+| Add-on | Why |
+|--------|-----|
+| cert-manager + ingress-nginx (or AWS ALB) + TLS | “Real” HTTPS edge on cluster path |
+| oauth2-proxy on Grafana | Zero-trust adjacent for UIs |
+| Trivy Operator (in-cluster CVE continuum) | Complements admit-time cosign |
+| Falco or tetragon (runtime) | Runtime threat detection story — keep optional |
+| Velero (backup/restore story) | DR talking point; run once in sandbox |
+| Argo Rollouts / analysis (canary) | Progressive delivery without a second product |
+| OpenTelemetry Collector stub | Future-proof observability without overbuilding |
+| checkov/tfsec + kube-score in CI | Extra IaC/K8s lint signal |
+| ADR folder (`docs/adrs/`) | Records Teleport vs SSM, Fargate vs node group, etc. |
+| Drift detection note (Argo selfHeal + `terraform plan` on schedule) | Ops maturity |
+| SBOM diff / digest changelog in `deploy/` PRs | Ties GitOps bumps to upstream releases |
+
+### Explicitly skip (unless a client asks)
+
+- Full Backstage / IDP portal
+- Multi-cluster / multi-region
+- Commercial WAF/CDN deep config
+- Replacing Infisical with Vault “just because”
+- Building a second app with Redis in this repo
+
+---
+
+## Cost model — what costs money vs free
+
+Rough guidance for a **sandbox** account. Local-only demo stays **~$0**.
+
+### Typically $0 for this portfolio flow
+
+| Tool / piece | Notes |
+|--------------|--------|
+| Docker Compose, Helm, kubectl, OrbStack/kind/k3d | Local |
+| Argo CD, Kyverno, cosign, Trivy, kubeconform, prometheus/grafana (Compose) | OSS |
+| GHCR pull of public image | Free for public packages |
+| GitHub Actions | Free minutes usually enough for public repos |
+| **Infisical Free** | Enough for verify: machine identity + `/cosign` public key (≤5 identities). Same project as secure-cicd signer. |
+| Infisical Kubernetes Operator / secrets-action OIDC | Free-tier capable for this demo |
+| AWS IAM Identity Center, IAM OIDC for GitHub, IRSA, SSM Session Manager | No extra product fee (AWS account required) |
+| NetworkPolicy, PSS, RBAC | Native K8s |
+
+### Costs money when you turn EKS / SaaS on
+
+| Item | Why it costs | Ballpark (order-of-magnitude) |
+|------|----------------|-------------------------------|
+| **EKS control plane** | Always-on per cluster | ~$0.10/hr ≈ **~$70–75/month** |
+| **Worker nodes** (managed node group) | EC2 for the demo | **~$15–40/month** for 1× small instance if left up; less if destroyed after demo |
+| **NAT Gateway** (if private subnets egress) | Hourly + data | Often **~$32+/month** — largest surprise; prefer public nodes or documented NAT-less design for sandbox |
+| **ALB / public LB** (optional ingress) | Hourly + LCU | **~$16+/month** if left up |
+| **CloudWatch logs** (EKS audit/control plane) | Ingestion + storage | Usually small for short demos; can spike if verbose + long retention |
+| **EIP / idle extras** | Easy to forget | Few $/month |
+| **Teleport Cloud** (if not self-hosting OSS) | SaaS JIT | Paid tiers — **prefer self-hosted OSS Teleport or AWS-native JIT** for $0 tooling cost |
+| **Infisical Pro+** | Only if you exceed free identities or need paid SSO features | Avoid for this demo; stay on Free |
+| **Route53 / domain** (optional pretty URL) | DNS | Low; skip with localhost/port-forward |
+| **Data transfer** | Cross-AZ / egress | Usually minor for demos |
+
+### Cost guardrails (must document in README)
+
+1. Default path = local → **$0**.
+2. EKS only via explicit `deploy_target=eks` + human apply; Makefile refuses blind apply.
+3. Prefer **destroy same day**; add a RUNBOOK “meter is running” checklist.
+4. Prefer **AWS-native JIT** over Teleport Cloud to avoid a second bill; or self-host Teleport Community on the cluster (compute already paid via nodes).
+5. Stay on **Infisical Free** for cosign public-key verify identities.
+6. Optional: Infracost comment on Terraform PRs so cost shows before apply.
+
+---
+
 ## Suggested implementation order (after approval)
 
 1. Docs reframe + stack alignment (drop Redis/worker from required path; pin upstream image by digest in values).
-2. Helm + Compose consume `ghcr.io/sauravrana646/portfolio-secure-cicd@sha256:…`; Makefile `verify-image`.
-3. Kyverno install manifests + policies (signature/SBOM/digest) + policy tests in CI.
-4. Argo App-of-Apps (policies then demo envs) + `deploy/environments/*/images.yaml`.
-5. Terraform: remove ECS; real EKS; IRSA; logging; cost docs.
-6. JIT/zero-trust slice (Teleport **or** Identity Center/SSM + EKS access entries) + SECURITY/RUNBOOK.
-7. Platform CI finalization (kyverno-test, cosign verify on pin changes, tfsec/checkov optional).
-8. Polish: quotas, PSS labels, External Secrets stub, Grafana auth note.
+2. Helm + Compose consume `ghcr.io/sauravrana646/portfolio-secure-cicd@sha256:…`.
+3. **Infisical verify path** (Actions OIDC + Makefile) for `cosign verify` / attestations using `cosign-public-key` only.
+4. Kyverno + Infisical-synced public key + policies (signature/SBOM/digest) + policy tests in CI.
+5. Argo App-of-Apps (Infisical sync → policies → demo envs) + `deploy/environments/*/images.yaml`.
+6. Terraform: remove ECS; real EKS; IRSA; logging; **cost table + destroy**.
+7. JIT/zero-trust slice (prefer **AWS-native** unless Teleport OSS is chosen) + SECURITY/RUNBOOK.
+8. P1 polish: demo script, KIND smoke, Dependabot, screenshots, CONTRIBUTING.
 
 ---
 
@@ -337,7 +451,7 @@ Still not an app release pipeline.
 **Upstream trust**
 
 - Pinned digest matches a secure-cicd GitHub Release.
-- `cosign verify` and SBOM attestation verify succeed with documented public key.
+- `cosign verify` and SBOM attestation verify succeed with **`cosign-public-key` from Infisical** (OIDC), not a key committed in git.
 - Unsigned image deploy is **blocked** by Kyverno (EKS or local policy profile).
 
 **Local**
@@ -363,9 +477,9 @@ Still not an app release pipeline.
 ## Assumptions / open items
 
 - secure-cicd GHCR package stays **public** (or pull credentials documented).
-- Cosign **public** key availability for verify (release notes, repo docs, or Infisical public material) — confirm exact distribution path with the secure-cicd release layout.
+- Infisical project/path/env slugs and machine `identity-id` for **verify** match (or are documented alongside) the secure-cicd **sign** setup; this repo only needs read access to `cosign-public-key`.
 - In-cluster verify of GitHub SLSA provenance may lag signature+SBOM; phase policies accordingly.
-- Teleport vs AWS-native JIT: **user picks one** before implementation Step 7.
+- JIT choice: **default recommendation = AWS-native (Identity Center + SSM)** for $0 tooling; Teleport OSS optional; Teleport Cloud avoided unless budgeted.
 - Upstream app has no Redis and may lack Prometheus metrics — monitoring story adapts (probes + optional blackbox).
 - EKS cost is real; local path must remain the default demo.
 
@@ -378,3 +492,4 @@ Still not an app release pipeline.
 - ECS/Fargate
 - Multi-region HA, full IDP/Backstage, 24/7 managed ops
 - Keeping Redis/worker as a first-class platform dependency once aligned to secure-cicd
+- Paid Infisical/Teleport SaaS tiers unless explicitly approved
