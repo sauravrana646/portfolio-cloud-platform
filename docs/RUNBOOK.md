@@ -7,6 +7,7 @@
 | Compose API | `curl -s http://127.0.0.1:8080/healthz` |
 | Compose root | `curl -s http://127.0.0.1:8080/` |
 | Cosign verify | `make verify-image` (Infisical + cosign) |
+| Teleport JIT | `tsh login` → `tsh kube login <kubeClusterName>` → `kubectl …` (see `docs/JIT_TELEPORT.md`) |
 | Cluster context | `kubectl config current-context` |
 | Cluster pods | `kubectl -n demo get pods` |
 | Cluster forward | `kubectl -n demo port-forward svc/demo-api 8080:80` |
@@ -18,6 +19,8 @@
 | ImagePullBackOff | GHCR/network | Check digest; `docker pull` the IMAGE_REF |
 | Kyverno block | Unsigned / tag-only image | Pin digest; ensure Infisical public key Secret exists |
 | `make verify-image` fails | No Infisical identity / key | Export `cosign_public_key` or configure Infisical CLI/OIDC |
+| Teleport agent CrashLoop | Missing join token / bad `proxyAddr` | Create Secret + fix values; see `docs/JIT_TELEPORT.md` |
+| `tsh kube ls` empty | Agent not synced / wrong cluster name | Sync `platform-teleport-agent`; check `kubeClusterName` |
 | `/metrics` empty | Upstream has no metrics yet | Use `/healthz` probes; see monitoring notes |
 | Helm timeout | Wrong context | `kubectl config use-context …` then retry |
 | EKS bill surprise | Cluster left up / NAT added | `terraform destroy`; keep `eks_public_nodes=true` |

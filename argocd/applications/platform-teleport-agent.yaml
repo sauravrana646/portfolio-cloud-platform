@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-teleport-agent
+  namespace: argocd
+  annotations:
+    # After core platform charts; before / alongside workloads
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
+      targetRevision: main
+      ref: values
+    - repoURL: https://charts.releases.teleport.dev
+      chart: teleport-kube-agent
+      targetRevision: 18.10.3
+      helm:
+        releaseName: teleport-kube-agent
+        valueFiles:
+          - $values/deploy/platform/teleport-kube-agent-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: teleport
+  syncPolicy:
+    # Manual sync until proxyAddr + join token Secret are configured.
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - '.spec.template.spec.containers[] | select(.name == "teleport").image'

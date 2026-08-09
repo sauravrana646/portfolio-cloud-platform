@@ -25,7 +25,7 @@ Scope: **local-first + EKS**. **ECS is out of scope** (remove from Terraform and
 | Images | Built in-repo; CI Trivy on local Dockerfile | Should **pull** `ghcr.io/sauravrana646/portfolio-secure-cicd` by **digest** from a release (e.g. `v0.1.0`), not rebuild the app |
 | Helm | API-only chart, local image tags | Digest pin + imagePullSecrets/GHCR public pull; drop worker/Redis templates |
 | Policy | None in-cluster | No Kyverno / signature / SBOM / attestation verify at admit time |
-| Access | kubeconfig / AWS keys assumed | No JIT / zero-trust access story (Teleport or SSM/Identity Center pattern) |
+| Access | kubeconfig / AWS keys assumed | Use **Teleport** kube-agent for JIT kubectl (AWS Identity Center/SSM JIT explicitly out of scope) |
 | Terraform | `local` \| `ecs` \| `eks`; EKS placeholder | Real EKS + IRSA + add-ons; ECS removed |
 | GitOps | One Argo app on `HEAD` | Per-env overlays; prod pins digest + revision |
 | Platform CI | pytest + build local image + helm lint + tf validate | Shift to: chart/IaC/policy gates + **cosign verify** of upstream digest; retire in-repo app build as primary path |
@@ -68,10 +68,10 @@ flowchart TB
 
   subgraph cloud [Path C — EKS]
     TF[Terraform EKS + IRSA + add-ons]
-    ZT[JIT / zero-trust access]
+    Teleport[Teleport kube-agent JIT]
     TF --> Argo
     TF --> Kyverno
-    TF --> ZT
+    TF --> Teleport
   end
 
   GHCR --> Compose
@@ -89,8 +89,8 @@ flowchart TB
 2. **Admit only verified images** — Kyverno checks signature + SBOM/attestation; **cosign public key always comes from Infisical** (same project/path the release signer uses).
 3. **Same chart, three runtimes** — Compose, local Helm, Argo-on-EKS.
 4. **Env promotion via GitOps values** (digest bumps), not via re-releasing the app in this repo.
-5. **Access is least-privilege and time-bound** — JIT/zero-trust pattern for humans; IRSA for workloads.
-6. Cloud remains **budget-gated**; default demo stays local.
+5. **Human JIT via Teleport** (`tsh` short-lived kube certs) — **not** AWS IAM Identity Center / SSM.
+6. Workload identity via IRSA where needed; cloud remains **budget-gated**; default demo stays local.
 
 ---
 
@@ -112,7 +112,8 @@ flowchart TB
 | `README.md` | Story: secure-cicd builds/signs → this pack deploys/verifies on Compose/Helm/Argo/EKS; drop ECS |
 | `docs/architecture.md` | Digest pin + Kyverno verify + EKS guardrails |
 | `docs/CASE_STUDY.md` | Platform pack that **consumes** a signed image; link secure-cicd for supply chain |
-| `docs/RUNBOOK.md` | Digest bump, cosign verify failure, Kyverno block, JIT access break-glass |
+| `docs/RUNBOOK.md` | Digest bump, cosign verify failure, Kyverno block, Teleport JIT login |
+| `docs/JIT_TELEPORT.md` | Teleport agent bootstrap + `tsh` demo flow |
 | `SECURITY.md` | Trust boundary: upstream signatures; cluster policy; access model |
 | Compose / Helm / `app/` | Align to single API image; remove Redis/worker from the **required** path (delete or quarantine under `legacy/` if useful for history) |
 | Monitoring | Upstream app may lack `/metrics` — scrape what exists, or document blackbox/probes only until upstream exports metrics |
@@ -198,7 +199,7 @@ policy/
 | No `:latest` | Deny mutable tags in uat/prod |
 | Digest required | Deployments must use `@sha256:` |
 
-**Bootstrap order:** Infisical Operator (public key sync) → Kyverno + policies → app sync (App-of-Apps).
+**Bootstrap order:** Kyverno Helm → Infisical Operator + key sync → Teleport agent (when configured) → Kyverno policies → demo apps (App-of-Apps waves).
 
 **Negative demo (sales):** deploy an unsigned or wrong-digest image → Kyverno blocks; contrast with pinned release digest.
 
@@ -228,7 +229,7 @@ argocd/
   root.yaml
   applications/
     platform-kyverno.yaml      # policies first
-    platform-access.yaml       # optional JIT/agent system namespace
+    platform-teleport-agent.yaml   # Teleport kube-agent (JIT)
     demo-dev.yaml
     demo-uat.yaml
     demo-prod.yaml
@@ -237,11 +238,14 @@ deploy/environments/
   uat/values.yaml
   prod/values.yaml
   */images.yaml                # digest pins
+deploy/platform/
+  teleport-kube-agent-values.yaml
 policy/kyverno/                # as above
 ```
 
 - `dev`: auto-sync; Kyverno in **Audit** or softer enforce for fast demos.
 - `uat`/`prod`: auto or manual sync; Kyverno **Enforce**; digest required.
+- Teleport agent: **manual sync** until `proxyAddr` + join-token Secret are set.
 - Prod Application `targetRevision: main` (or release git tag of *this* repo’s config) — not floating random branches.
 
 Promotion = PR that bumps digest in env values after a secure-cicd release.
@@ -263,39 +267,33 @@ Promotion = PR that bumps digest in env values after a secure-cicd release.
 
 ---
 
-## Step 7 — Zero-trust & JIT access (human path)
+## Step 7 — JIT access via Teleport (chosen)
 
-Goal: show enterprise **break-glass / time-bound access**, not permanent `system:masters` kubeconfigs in laptops.
+**Decision:** human JIT = **Teleport** (`teleport-kube-agent` Helm chart in App-of-Apps).  
+**Explicitly out of scope:** AWS IAM Identity Center, EKS Access Entries-as-JIT, SSM Session Manager access path.
 
-Pick **one primary demo** (keep the rest as “engagement add-ons” in docs):
+See `docs/JIT_TELEPORT.md` for operator steps.
 
-### Recommended primary: Teleport (or similar) for K8s JIT
+| Piece | Implementation |
+|-------|----------------|
+| Agent | Argo `platform-teleport-agent` → `teleport-kube-agent` 18.x |
+| Values | `deploy/platform/teleport-kube-agent-values.yaml` (`proxyAddr`, `kubeClusterName`) |
+| Join token | K8s Secret `teleport/teleport-kube-agent-join-token` (never in git) |
+| Control plane | Teleport Cloud (demo) **or** optional self-hosted `teleport-cluster` later |
+| Demo | `tsh login` → `tsh kube login` → time-bound `kubectl` |
 
-- Run Teleport (or Cloud) agent on EKS; RBAC maps SSO groups → Kubernetes groups.
-- Short-lived certs for `kubectl`; session recording mentioned in CASE_STUDY.
-- Local OrbStack path can skip Teleport; document “full JIT on EKS profile.”
-
-### Strong AWS-native alternative (if Teleport is too heavy)
-
-- **IAM Identity Center** (SSO) + EKS Access Entries / team roles.
-- **SSM Session Manager** for node access (no SSH bastion).
-- **No long-lived access keys**; GitHub Actions → AWS via **OIDC** for terraform plan/apply.
-- Document **break-glass** role with approval + CloudTrail.
-
-### Supporting zero-trust controls (include in pack)
+### Supporting controls (still in pack; not “AWS JIT”)
 
 | Control | Implementation sketch |
 |---------|----------------------|
-| Workload identity | IRSA; no static AWS keys in Secrets |
-| Network | NetworkPolicy default-deny in uat/prod; optional Cilium notes |
-| Ingress auth | oauth2-proxy / AWS ALB OIDC for any demo UI (Grafana) |
-| Secrets | Infisical Operator for cosign public key (+ optional app secrets); no plaintext prod secrets in git |
-| Admission | Kyverno (above) + Pod Security `restricted`/`baseline` labels on namespaces |
-| Audit | EKS control plane logging to CloudWatch; document retention |
-| Image trust | Cosign verify with **Infisical** public key + SBOM attest |
-| Supply chain at deploy | Digest pins in GitOps only |
+| Workload identity | IRSA for pods that call AWS APIs; GitHub Actions → AWS via OIDC for terraform plan |
+| Network | NetworkPolicy default-deny in uat/prod |
+| Secrets | Infisical Operator for cosign public key |
+| Admission | Kyverno + digest/signature policies |
+| Audit | EKS control plane logging when EKS is on |
+| Image trust | Cosign verify with Infisical public key |
 
-Avoid boiling the ocean: ship **Kyverno verify + IRSA + NetworkPolicy + OIDC for CI/Terraform + one JIT story (Teleport *or* Identity Center/SSM)** in the first enterprise slice. List others as phase-2.
+Ship: **Kyverno verify + Teleport JIT + NetworkPolicy + Infisical verify + OIDC for CI/Terraform**.
 
 ---
 
@@ -376,7 +374,7 @@ Items that make the case study feel “finished” without changing the core sto
 | Argo Rollouts / analysis (canary) | Progressive delivery without a second product |
 | OpenTelemetry Collector stub | Future-proof observability without overbuilding |
 | checkov/tfsec + kube-score in CI | Extra IaC/K8s lint signal |
-| ADR folder (`docs/adrs/`) | Records Teleport vs SSM, Fargate vs node group, etc. |
+| ADR folder (`docs/adrs/`) | Records Teleport control-plane choice, Fargate vs node group, etc. |
 | Drift detection note (Argo selfHeal + `terraform plan` on schedule) | Ops maturity |
 | SBOM diff / digest changelog in `deploy/` PRs | Ties GitOps bumps to upstream releases |
 
@@ -404,7 +402,8 @@ Rough guidance for a **sandbox** account. Local-only demo stays **~$0**.
 | GitHub Actions | Free minutes usually enough for public repos |
 | **Infisical Free** | Enough for verify: machine identity + `/cosign` public key (≤5 identities). Same project as secure-cicd signer. |
 | Infisical Kubernetes Operator / secrets-action OIDC | Free-tier capable for this demo |
-| AWS IAM Identity Center, IAM OIDC for GitHub, IRSA, SSM Session Manager | No extra product fee (AWS account required) |
+| GitHub→AWS OIDC for terraform plan, IRSA for workloads | No extra product fee (AWS account required) |
+| Teleport kube-agent | OSS chart; control plane = Cloud free/team or self-host |
 | NetworkPolicy, PSS, RBAC | Native K8s |
 
 ### Costs money when you turn EKS / SaaS on
@@ -417,7 +416,7 @@ Rough guidance for a **sandbox** account. Local-only demo stays **~$0**.
 | **ALB / public LB** (optional ingress) | Hourly + LCU | **~$16+/month** if left up |
 | **CloudWatch logs** (EKS audit/control plane) | Ingestion + storage | Usually small for short demos; can spike if verbose + long retention |
 | **EIP / idle extras** | Easy to forget | Few $/month |
-| **Teleport Cloud** (if not self-hosting OSS) | SaaS JIT | Paid tiers — **prefer self-hosted OSS Teleport or AWS-native JIT** for $0 tooling cost |
+| **Teleport Cloud** (optional control plane) | SaaS proxy for agent join | Free/team often enough for demos; self-host `teleport-cluster` if you want $0 SaaS |
 | **Infisical Pro+** | Only if you exceed free identities or need paid SSO features | Avoid for this demo; stay on Free |
 | **Route53 / domain** (optional pretty URL) | DNS | Low; skip with localhost/port-forward |
 | **Data transfer** | Cross-AZ / egress | Usually minor for demos |
@@ -427,7 +426,7 @@ Rough guidance for a **sandbox** account. Local-only demo stays **~$0**.
 1. Default path = local → **$0**.
 2. EKS only via explicit `deploy_target=eks` + human apply; Makefile refuses blind apply.
 3. Prefer **destroy same day**; add a RUNBOOK “meter is running” checklist.
-4. Prefer **AWS-native JIT** over Teleport Cloud to avoid a second bill; or self-host Teleport Community on the cluster (compute already paid via nodes).
+4. JIT is **Teleport**; do not add AWS Identity Center/SSM as the access story. Prefer Teleport Cloud free/team or self-hosted control plane.
 5. Stay on **Infisical Free** for cosign public-key verify identities.
 6. Optional: Infracost comment on Terraform PRs so cost shows before apply.
 
@@ -441,7 +440,7 @@ Rough guidance for a **sandbox** account. Local-only demo stays **~$0**.
 4. Kyverno + Infisical-synced public key + policies (signature/SBOM/digest) + policy tests in CI.
 5. Argo App-of-Apps (Infisical sync → policies → demo envs) + `deploy/environments/*/images.yaml`.
 6. Terraform: remove ECS; real EKS; IRSA; logging; **cost table + destroy**.
-7. JIT/zero-trust slice (prefer **AWS-native** unless Teleport OSS is chosen) + SECURITY/RUNBOOK.
+7. **Teleport JIT** (kube-agent App + `docs/JIT_TELEPORT.md`) — done / harden as needed.
 8. P1 polish: demo script, KIND smoke, Dependabot, screenshots, CONTRIBUTING.
 
 ---
@@ -465,7 +464,7 @@ Rough guidance for a **sandbox** account. Local-only demo stays **~$0**.
 
 **EKS sandbox**
 
-- Plan/apply (approved) brings up cluster; Kyverno + app healthy; JIT path can request short-lived access; `terraform destroy` works.
+- Plan/apply (approved) brings up cluster; Kyverno + app healthy; `tsh kube login` works via Teleport agent; `terraform destroy` works.
 
 **CI**
 
@@ -479,7 +478,7 @@ Rough guidance for a **sandbox** account. Local-only demo stays **~$0**.
 - secure-cicd GHCR package stays **public** (or pull credentials documented).
 - Infisical project/path/env slugs and machine `identity-id` for **verify** match (or are documented alongside) the secure-cicd **sign** setup; this repo only needs read access to `cosign-public-key`.
 - In-cluster verify of GitHub SLSA provenance may lag signature+SBOM; phase policies accordingly.
-- JIT choice: **default recommendation = AWS-native (Identity Center + SSM)** for $0 tooling; Teleport OSS optional; Teleport Cloud avoided unless budgeted.
+- JIT choice: **Teleport** (kube-agent). AWS IAM Identity Center / SSM Session Manager JIT is out of scope.
 - Upstream app has no Redis and may lack Prometheus metrics — monitoring story adapts (probes + optional blackbox).
 - EKS cost is real; local path must remain the default demo.
 
@@ -490,6 +489,7 @@ Rough guidance for a **sandbox** account. Local-only demo stays **~$0**.
 - Rebuilding/signing the app or storing cosign **private** keys in this repo
 - Re-implementing `dev`→`uat`→`main` promotion for application code (lives upstream)
 - ECS/Fargate
+- **AWS JIT** (IAM Identity Center, EKS Access Entries as human JIT, SSM Session Manager access path)
 - Multi-region HA, full IDP/Backstage, 24/7 managed ops
 - Keeping Redis/worker as a first-class platform dependency once aligned to secure-cicd
-- Paid Infisical/Teleport SaaS tiers unless explicitly approved
+- Paid Infisical/Teleport SaaS tiers beyond free/team unless explicitly approved

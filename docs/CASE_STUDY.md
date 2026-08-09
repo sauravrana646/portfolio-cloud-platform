@@ -20,7 +20,8 @@ and cloud spend fear blocking EKS experiments.
 3. Helm + Argo CD env overlays for GitOps promotion.
 4. Kyverno policies (digest, non-root, signature / SBOM attestation).
 5. Terraform `deploy_target=eks` (cost-gated, no NAT by default); ECS removed.
-6. Platform CI: helm/terraform gates + optional Infisical cosign verify.
+6. **Teleport** for JIT kubectl (`tsh`) — not AWS Identity Center / SSM.
+7. Platform CI: path-filtered helm/terraform gates + optional Infisical cosign verify.
 
 ## Stack
 

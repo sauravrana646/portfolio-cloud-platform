@@ -22,10 +22,12 @@ Helm chart `charts/demo-app` deploys the API against the current kubecontext
 
 1. Helm: `metrics-server`, `kyverno`, Infisical `secrets-operator`
 2. InfisicalSecret CR → `platform-system/cosign-public-key`
-3. Kyverno ClusterPolicies (Kustomize)
-4. Helm: `charts/demo-app` per env (`demo-dev` / `uat` / `prod`)
+3. Helm: Teleport `teleport-kube-agent` (JIT kubectl — see `docs/JIT_TELEPORT.md`)
+4. Kyverno ClusterPolicies (Kustomize)
+5. Helm: `charts/demo-app` per env (`demo-dev` / `uat` / `prod`)
 
-Promotion = PR that bumps the digest in env `images.yaml`. Not using ApplicationSets.
+Promotion = PR that bumps the digest in env `images.yaml`. Not using ApplicationSets.  
+Human JIT is **Teleport**; AWS IAM Identity Center / SSM are not used for access.
 
 ## Admission
 

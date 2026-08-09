@@ -70,8 +70,9 @@ flowchart TB
 | Workload image | Signed `portfolio-secure-cicd` from GHCR (digest pin) |
 | Local | Docker Compose |
 | K8s | Helm chart + Argo CD App-of-Apps |
-| Platform Helm deps | Kyverno, Infisical secrets-operator, metrics-server |
+| Platform Helm deps | Kyverno, Infisical secrets-operator, metrics-server, **Teleport kube-agent** (JIT) |
 | Policy | Kyverno ClusterPolicies (digest, non-root, cosign verify) |
+| JIT access | Teleport (`tsh`) — not AWS Identity Center / SSM |
 | Secrets | Infisical Operator sync + CI OIDC for cosign **public** key |
 | IaC | Terraform `local` \| `eks` (no ECS) |
 | Observability | Prometheus + Grafana (Compose) |
