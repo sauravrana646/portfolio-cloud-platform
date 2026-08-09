@@ -27,6 +27,24 @@ local/bootstrap/
 
 ## Quick start
 
+### OrbStack (Mac) — recommended
+
+```bash
+# 1) OrbStack → enable Kubernetes, then:
+kubectl config use-context orbstack
+kubectl get nodes
+
+# 2) Tools on PATH: kubectl, helm (brew install helm kubectl)
+# 3) From repo root — install onto the existing cluster (no Kind):
+SKIP_CLUSTER_CREATE=1 make bootstrap-up
+
+make bootstrap-status
+# Tear down releases only (keep OrbStack cluster):
+DELETE_CLUSTER=0 make bootstrap-down
+```
+
+### Kind (creates its own cluster)
+
 ```bash
 # Tools: docker, kind, kubectl, helm
 make bootstrap-up

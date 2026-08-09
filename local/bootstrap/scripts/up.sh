@@ -19,15 +19,18 @@ need() {
   }
 }
 
-need kind
 need kubectl
 need helm
-need docker
 
-echo "==> Ensuring Kind cluster '${CLUSTER_NAME}'"
-if [[ "${SKIP_CLUSTER_CREATE}" != "1" ]]; then
+echo "==> Using kube-context: $(kubectl config current-context)"
+if [[ "${SKIP_CLUSTER_CREATE}" == "1" ]]; then
+  echo "    SKIP_CLUSTER_CREATE=1 — not creating Kind (OrbStack / existing cluster)"
+else
+  need kind
+  need docker
+  echo "==> Ensuring Kind cluster '${CLUSTER_NAME}'"
   if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
-    echo "    cluster already exists — reusing (set SKIP_CLUSTER_CREATE=1 to silence)"
+    echo "    cluster already exists — reusing (OrbStack: SKIP_CLUSTER_CREATE=1 make bootstrap-up)"
   else
     kind create cluster --config "${KIND_CONFIG}"
   fi
