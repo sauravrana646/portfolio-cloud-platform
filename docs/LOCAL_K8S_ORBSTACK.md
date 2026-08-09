@@ -71,9 +71,9 @@ kubectl -n argocd delete applicationset charts --ignore-not-found
 
 1. Open [Infisical](https://app.infisical.com/) → project **`devops-portfolio-x-k3-y`**
 2. Environment **`prod`**
-3. Path **`/cosign`**
+3. Path / folder **`/cosign`**
 4. Create/update secret:
-   - **Name:** `COSIGN_PUBLIC_KEY`
+   - **Name:** `cosign-public-key` (exact name under `/cosign`)
    - **Value:** cosign public PEM (`-----BEGIN PUBLIC KEY-----` …)
 
 ### 3b. Create machine identity
@@ -165,7 +165,8 @@ spec:
       template:
         includeAllSecrets: false
         data:
-          cosign.pub: "{{ .COSIGN_PUBLIC_KEY.Value }}"
+          # Infisical secret name under /cosign is cosign-public-key
+          cosign.pub: '{{ (index . "cosign-public-key").Value }}'
 EOF
 ```
 

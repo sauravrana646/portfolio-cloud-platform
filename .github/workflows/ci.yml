@@ -367,8 +367,15 @@ jobs:
         if: ${{ vars.INFISICAL_IDENTITY_ID != '' }}
         run: |
           set -euo pipefail
+          # Infisical secret name under /cosign is "cosign-public-key";
+          # secrets-action exports it as cosign_public_key for env.
+          KEY="${cosign_public_key:-${COSIGN_PUBLIC_KEY:-}}"
+          if [ -z "$KEY" ]; then
+            echo "Infisical secret cosign-public-key (/cosign) not found in env" >&2
+            exit 1
+          fi
           tmp=$(mktemp)
-          printf '%s\n' "${cosign_public_key}" > "$tmp"
+          printf '%s\n' "$KEY" > "$tmp"
           cosign verify --key "$tmp" "${{ steps.image.outputs.image_ref }}"
           cosign verify-attestation --key "$tmp" --type spdx "${{ steps.image.outputs.image_ref }}" >/dev/null
           rm -f "$tmp"
