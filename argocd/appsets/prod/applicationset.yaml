@@ -1,5 +1,4 @@
-# Discovers charts/applications/*/apps/prod.yaml only — used by root-prod.yaml.
-# Name: <chart>-prod from path segments (unique per chart).
+# Discovers workload env apps via EXPLICIT paths (no globs).
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -7,19 +6,19 @@ metadata:
   namespace: argocd
 spec:
   goTemplate: true
-  goTemplateOptions: ["missingkey=default"]
+  goTemplateOptions: ["missingkey=error"]
   generators:
     - git:
         repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
         revision: main
         files:
-          - path: charts/applications/*/apps/prod.yaml
+          - path: charts/applications/demo-app/apps/prod.yaml
   template:
     metadata:
-      name: '{{ index .path.segments 2 }}-{{ trimSuffix ".yaml" .path.filename }}'
+      name: '{{ .name }}'
       namespace: argocd
       annotations:
-        argocd.argoproj.io/sync-wave: '{{ default "0" .syncWave }}'
+        argocd.argoproj.io/sync-wave: '{{ .syncWave }}'
       labels:
         app.kubernetes.io/managed-by: charts-prod-applicationset
         platform.layer: '{{ .layer }}'
@@ -75,10 +74,3 @@ spec:
           {{- if eq (toString (default "false" .serverSideApply)) "true" }}
           - ServerSideApply=true
           {{- end }}
-      {{- if eq .chart "teleport-kube-agent" }}
-      ignoreDifferences:
-        - group: apps
-          kind: StatefulSet
-          jqPathExpressions:
-            - '.spec.template.spec.containers[] | select(.name == "teleport").image'
-      {{- end }}
