@@ -1,6 +1,6 @@
-# Discovers charts/bootstrap-layer/*/app.yaml (platform prerequisites).
-# App name is path-derived (bootstrap-<folder>) so names stay unique even if
-# discovery-file fields fail to render (avoids "duplicate name" on ApplicationSet).
+# Discovers bootstrap charts via EXPLICIT app.yaml paths (no globs).
+# Argo's default git file globbing is greedy and can match the same file
+# twice → "ApplicationSet contains applications with duplicate name".
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -8,19 +8,26 @@ metadata:
   namespace: argocd
 spec:
   goTemplate: true
-  goTemplateOptions: ["missingkey=default"]
+  goTemplateOptions: ["missingkey=error"]
   generators:
     - git:
         repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
         revision: main
         files:
-          - path: charts/bootstrap-layer/*/app.yaml
+          - path: charts/bootstrap-layer/metrics-server/app.yaml
+          - path: charts/bootstrap-layer/kyverno/app.yaml
+          - path: charts/bootstrap-layer/kube-prometheus-stack/app.yaml
+          - path: charts/bootstrap-layer/infisical-operator/app.yaml
+          - path: charts/bootstrap-layer/infisical-secrets/app.yaml
+          - path: charts/bootstrap-layer/teleport-kube-agent/app.yaml
+          - path: charts/bootstrap-layer/kyverno-policies/app.yaml
   template:
     metadata:
-      name: 'bootstrap-{{ .path.basename }}'
+      # Unique name from discovery file (required field in each app.yaml)
+      name: '{{ .name }}'
       namespace: argocd
       annotations:
-        argocd.argoproj.io/sync-wave: '{{ default "0" .syncWave }}'
+        argocd.argoproj.io/sync-wave: '{{ .syncWave }}'
       labels:
         app.kubernetes.io/managed-by: charts-bootstrap-applicationset
         platform.layer: '{{ .layer }}'

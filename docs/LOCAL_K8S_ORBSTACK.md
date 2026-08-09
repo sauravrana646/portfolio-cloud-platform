@@ -63,23 +63,27 @@ kubectl -n argocd delete application platform-root --ignore-not-found
 kubectl -n argocd delete applicationset charts --ignore-not-found
 ```
 
-If `charts-bootstrap` shows **“contains applications with duplicate name”**, stale
-apps from the old ApplicationSet are often still around — clean them, then refresh:
+If `charts-bootstrap` shows **“contains applications with duplicate name”**:
+
+1. Ensure you are on a `main` commit that uses **explicit** `files:` paths (no
+   `charts/bootstrap-layer/*/app.yaml` globs — greedy globs cause this).
+2. Clean leftovers, then hard-refresh:
 
 ```bash
 kubectl -n argocd get applicationset
-kubectl -n argocd get applications
+kubectl -n argocd get applicationset charts-bootstrap -o yaml | grep -A20 'files:'
 
-# Remove leftovers from the old monolithic generator (names may match bootstrap-*)
+# Must NOT show a glob like '*/app.yaml' — only concrete paths
 kubectl -n argocd delete applicationset charts --ignore-not-found
 kubectl -n argocd delete application platform-root --ignore-not-found
 
-# Optional: delete orphan bootstrap apps so charts-bootstrap can recreate them
+# Recreate cleanly: delete AppSet children then refresh
+kubectl -n argocd delete application -l app.kubernetes.io/managed-by=charts-bootstrap-applicationset --ignore-not-found
 kubectl -n argocd delete application -l app.kubernetes.io/managed-by=charts-applicationset --ignore-not-found
 
-# Hard-refresh the new ApplicationSet
 kubectl -n argocd annotate applicationset charts-bootstrap \
   argocd.argoproj.io/application-set-refresh=true --overwrite
+# UI: platform-root-bootstrap → Hard Refresh + Sync
 ```
 
 ---

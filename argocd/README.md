@@ -63,10 +63,13 @@ Promotion = PR changing digests under `helm-values/applications/<chart>/environm
 
 ## Onboard a chart
 
-| Layer | Add | Discovery file | Values |
-|-------|-----|----------------|--------|
-| Bootstrap | `charts/bootstrap-layer/<chart>/` | `app.yaml` | `helm-values/bootstrap-layer/<chart>/values.yaml` |
-| Workload | `charts/applications/<chart>/` | `apps/<env>.yaml` per env you want | `helm-values/applications/<chart>/environments/<env>/` |
+| Layer | Add | Discovery file | Also register path in | Values |
+|-------|-----|----------------|----------------------|--------|
+| Bootstrap | `charts/bootstrap-layer/<chart>/` | `app.yaml` | `argocd/appsets/bootstrap/applicationset.yaml` `files:` list | `helm-values/bootstrap-layer/<chart>/values.yaml` |
+| Workload | `charts/applications/<chart>/` | `apps/<env>.yaml` | matching `argocd/appsets/<env>/applicationset.yaml` | `helm-values/applications/<chart>/environments/<env>/` |
+
+Paths are listed **explicitly** (no `*` globs). Argo’s default git file globbing is
+greedy and can emit duplicate Application names.
 
 ### Naming
 
