@@ -396,11 +396,11 @@ jobs:
       - name: Validate Argo Application YAMLs
         run: |
           set -euo pipefail
+          pip install -q pyyaml
           # Application CRDs are not in upstream k8s schemas — structural checks only.
           for f in argocd/root.yaml argocd/application.yaml argocd/applications/*.yaml; do
             echo "==> $f"
             grep -q 'kind: Application' "$f"
-            # basic YAML parse via python
             python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" "$f"
           done
           python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" platform/infisical/infisical-secret-cosign.yaml
