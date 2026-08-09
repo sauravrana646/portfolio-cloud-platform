@@ -7,7 +7,7 @@ metadata:
   namespace: argocd
 spec:
   goTemplate: true
-  goTemplateOptions: ["missingkey=error"]
+  goTemplateOptions: ["missingkey=default"]
   generators:
     - git:
         repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
@@ -57,7 +57,7 @@ spec:
             releaseName: '{{ default .chart .releaseName }}'
             valueFiles:
               - $values/helm-values/{{ .valuesPath }}/values.yaml
-              {{- if .env }}
+              {{- if and (hasKey . "env") .env }}
               - $values/helm-values/{{ .valuesPath }}/environments/{{ .env }}/values.yaml
               {{- if eq (toString (default "false" .imagePin)) "true" }}
               - $values/helm-values/{{ .valuesPath }}/environments/{{ .env }}/images.yaml
