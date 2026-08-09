@@ -65,7 +65,9 @@ Workload valueFiles order: base → env values → env images.
 | 3 | kyverno-policies |
 | 10 | `*-dev` / `*-uat` / `*-prod` workload apps |
 
-Local Compose Prometheus/Grafana stays under `local/` (not Argo).
+Local paths (not Argo): Compose under `local/docker-compose.yml`; full Kind
+bootstrap (same charts/policies/monitoring) under `local/bootstrap/` —
+`make bootstrap-up`.
 
 ## Before first sync
 

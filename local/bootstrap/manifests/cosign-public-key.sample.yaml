@@ -1,0 +1,14 @@
+# Sample shape for platform-system/cosign-public-key (Kyverno verifyImages).
+# Prefer: make bootstrap-up (creates Secret from COSIGN_PUBLIC_KEY / Infisical).
+# Do not commit real key material.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cosign-public-key
+  namespace: platform-system
+type: Opaque
+stringData:
+  cosign.pub: |
+    -----BEGIN PUBLIC KEY-----
+    REPLACE_WITH_COSIGN_PUBLIC_KEY_PEM
+    -----END PUBLIC KEY-----

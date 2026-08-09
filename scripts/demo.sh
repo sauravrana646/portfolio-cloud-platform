@@ -32,4 +32,4 @@ else
 fi
 
 echo "==> Done. Grafana http://127.0.0.1:3000 (admin / \$GF_SECURITY_ADMIN_PASSWORD or admin)"
-echo "    Cluster path: make cluster-deploy (current kubecontext)"
+echo "    Full Kind platform (Kyverno + policies + prom-stack + app): make bootstrap-up"

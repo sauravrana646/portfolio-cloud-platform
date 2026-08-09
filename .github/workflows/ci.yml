@@ -425,6 +425,21 @@ jobs:
           test -f charts/bootstrap-layer/kyverno-policies/app.yaml
           test -f charts/applications/demo-app/Chart.yaml
           test -f charts/applications/demo-app/apps/dev.yaml
+          # Local Kind bootstrap contract
+          python3 -c "import yaml; yaml.safe_load(open('local/bootstrap/components.yaml')); yaml.safe_load(open('local/bootstrap/kind.yaml'))"
+          bash -n local/bootstrap/scripts/up.sh
+          bash -n local/bootstrap/scripts/down.sh
+          bash -n local/bootstrap/scripts/status.sh
+          bash -n local/bootstrap/scripts/lib/cosign-secret.sh
+          test -f local/bootstrap/values/kyverno.yaml
+          test -f local/bootstrap/values/kube-prometheus-stack.yaml
+          test -f local/bootstrap/manifests/namespaces.yaml
+          helm template local-kyverno charts/bootstrap-layer/kyverno \
+            -f helm-values/bootstrap-layer/kyverno/values.yaml \
+            -f local/bootstrap/values/kyverno.yaml >/dev/null
+          helm template local-prom charts/bootstrap-layer/kube-prometheus-stack \
+            -f helm-values/bootstrap-layer/kube-prometheus-stack/values.yaml \
+            -f local/bootstrap/values/kube-prometheus-stack.yaml >/dev/null
 
 
   pr-report:

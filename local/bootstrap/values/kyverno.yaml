@@ -1,0 +1,24 @@
+# Kind / local overrides — single-replica controllers, skip system namespaces.
+kyverno:
+  admissionController:
+    replicas: 1
+  backgroundController:
+    replicas: 1
+  cleanupController:
+    replicas: 1
+  reportsController:
+    replicas: 1
+  config:
+    webhooks:
+      namespaceSelector:
+        matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: NotIn
+            values:
+              - kube-system
+              - kyverno
+              - argocd
+              - infisical-system
+              - monitoring
+              - teleport
+              - local-path-storage

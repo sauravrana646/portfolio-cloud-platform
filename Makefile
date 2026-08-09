@@ -1,4 +1,6 @@
-.PHONY: help up down test helm-lint helm-template helm-deps tf-validate cluster-deploy cluster-down cluster-status plan apply verify-image compose-config
+.PHONY: help up down test helm-lint helm-template helm-deps tf-validate cluster-deploy cluster-down cluster-status plan apply verify-image compose-config bootstrap-up bootstrap-down bootstrap-status
+
+SHELL := /bin/bash
 
 COMPOSE_FILE ?= local/docker-compose.yml
 IMAGE_FILE ?= helm-values/applications/demo-app/environments/dev/images.yaml
@@ -8,7 +10,16 @@ INFISICAL_ENV_SLUG ?= prod
 INFISICAL_SECRET_PATH ?= /cosign
 
 help:
-	@echo "up down compose-config verify-image helm-deps helm-lint helm-template cluster-deploy cluster-down cluster-status tf-validate plan apply"
+	@echo "up down compose-config bootstrap-up bootstrap-down bootstrap-status verify-image helm-deps helm-lint helm-template cluster-deploy cluster-down cluster-status tf-validate plan apply"
+
+bootstrap-up:
+	bash local/bootstrap/scripts/up.sh
+
+bootstrap-down:
+	bash local/bootstrap/scripts/down.sh
+
+bootstrap-status:
+	bash local/bootstrap/scripts/status.sh
 
 up:
 	docker compose -f $(COMPOSE_FILE) up -d
@@ -76,23 +87,24 @@ apply:
 	@echo "Refusing apply. Pass explicit approval and run terraform apply manually in a sandbox."
 
 cluster-deploy:
+	@echo "Prefer: make bootstrap-up (Kind + Kyverno + monitoring + policies)."
 	@echo "Using kubectl context: $$(kubectl config current-context)"
-	kubectl create namespace demo --dry-run=client -o yaml | kubectl apply -f -
-	helm upgrade --install demo $(CHART_APP) \
-		--namespace demo \
+	kubectl create namespace demo-app-dev --dry-run=client -o yaml | kubectl apply -f -
+	helm upgrade --install demo-app $(CHART_APP) \
+		--namespace demo-app-dev \
 		-f helm-values/applications/demo-app/values.yaml \
 		-f helm-values/applications/demo-app/environments/dev/values.yaml \
 		-f helm-values/applications/demo-app/environments/dev/images.yaml \
+		-f local/bootstrap/values/demo-app.yaml \
 		--wait --timeout 180s
-	@echo "Port-forward: kubectl -n demo port-forward svc/demo-api 8080:80"
+	@echo "Port-forward: kubectl -n demo-app-dev port-forward svc/demo-api 8080:80"
 
 cluster-status:
-	kubectl config current-context
-	kubectl -n demo get deploy,svc,pdb,networkpolicy,sa 2>/dev/null || true
+	@$(MAKE) bootstrap-status
 
 cluster-down:
-	helm uninstall demo --namespace demo || true
-	kubectl delete namespace demo --ignore-not-found
+	helm uninstall demo-app --namespace demo-app-dev || true
+	kubectl delete namespace demo-app-dev --ignore-not-found
 
 test:
 	@echo "No in-repo app unit tests; workload is upstream portfolio-secure-cicd."

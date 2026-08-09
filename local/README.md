@@ -1,21 +1,33 @@
-# Local demo ($0)
+# Local demo
 
-Laptop path — no cluster required.
+Two paths:
+
+| Path | Command | What you get |
+|------|---------|----------------|
+| **Compose ($0)** | `make up` | Signed API image + Compose Prometheus/Grafana |
+| **Kind (full platform)** | `make bootstrap-up` | Kyverno, policies, kube-prometheus-stack, demo-app |
+
+## Compose
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.yml` | API (signed GHCR image) + Prometheus + Grafana |
-| `monitoring/prometheus.yml` | Scrape config for Compose Prometheus |
-| `bootstrap.yaml` | Kind cluster config for optional local Kubernetes |
+| `docker-compose.yml` | API (digest-pinned GHCR) + Prometheus + Grafana |
+| `monitoring/prometheus.yml` | Compose Prometheus scrape config |
 
 ```bash
-# From repo root:
-make up                 # uses local/docker-compose.yml
+make up
 curl -s localhost:8080/healthz
-
-# Optional local cluster (Kind):
-kind create cluster --config local/bootstrap.yaml
+# Grafana http://127.0.0.1:3000  (admin / admin)
 ```
 
-Cluster monitoring on OrbStack/EKS uses `charts/bootstrap-layer/kube-prometheus-stack`
-(not this Compose stack).
+## Kind bootstrap
+
+Everything lives under `local/bootstrap/` — Kind config, dependency values, manifests, and scripts.
+
+```bash
+make bootstrap-up      # Kind + metrics-server + Kyverno + prom-stack + policies + demo-app-dev
+make bootstrap-status
+make bootstrap-down
+```
+
+See [`bootstrap/README.md`](bootstrap/README.md).

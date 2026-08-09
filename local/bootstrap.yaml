@@ -1,25 +1,3 @@
-# Kind cluster config for optional local Kubernetes demos.
-# Usage: kind create cluster --config local/bootstrap.yaml
-#
-# After the cluster is up, bootstrap platform deps via Argo:
-#   kubectl apply -f argocd/root.yaml
-# Or install charts manually with values from helm-values/.
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-name: portfolio-cloud-platform
-nodes:
-  - role: control-plane
-    kubeadmConfigPatches:
-      - |
-        kind: InitConfiguration
-        nodeRegistration:
-          kubeletExtraArgs:
-            node-labels: "ingress-ready=true"
-    extraPortMappings:
-      - containerPort: 80
-        hostPort: 8081
-        protocol: TCP
-      - containerPort: 443
-        hostPort: 8443
-        protocol: TCP
-  - role: worker
+# Deprecated: Kind config moved to local/bootstrap/kind.yaml
+# Use: make bootstrap-up
+#  or: kind create cluster --config local/bootstrap/kind.yaml

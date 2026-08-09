@@ -9,8 +9,12 @@ pinned by digest under
 
 ## Local (`local/`)
 
-Docker Compose pulls the GHCR digest and runs API + Prometheus + Grafana.
-Optional Kind cluster: `kind create cluster --config local/bootstrap.yaml`.
+| Path | Entry |
+|------|--------|
+| Compose ($0) | `make up` — API + Compose Prometheus/Grafana |
+| Kind e2e | `make bootstrap-up` — `local/bootstrap/` installs metrics-server, Kyverno, kube-prometheus-stack, policies, `demo-app-dev` |
+
+Kind config: `local/bootstrap/kind.yaml`. Overlays: `local/bootstrap/values/`.
 
 ## Charts
 

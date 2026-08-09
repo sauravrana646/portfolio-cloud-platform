@@ -1,0 +1,13 @@
+# Local Kind overrides for demo-app (dev profile + light resources).
+replicaCount: 1
+podDisruptionBudget:
+  enabled: false
+networkPolicy:
+  enabled: false
+resources:
+  requests:
+    cpu: 20m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

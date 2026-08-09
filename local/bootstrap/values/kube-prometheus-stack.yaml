@@ -1,0 +1,35 @@
+# Kind / local overrides — lighter footprint + host NodePorts (see kind.yaml).
+kube-prometheus-stack:
+  grafana:
+    adminPassword: admin
+    persistence:
+      enabled: false
+    service:
+      type: NodePort
+      nodePort: 30030
+  prometheus:
+    service:
+      type: NodePort
+      nodePort: 30090
+    prometheusSpec:
+      retention: 2d
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 768Mi
+      storageSpec: {}
+  alertmanager:
+    enabled: false
+  nodeExporter:
+    enabled: true
+  kubeStateMetrics:
+    enabled: true
+  defaultRules:
+    create: true
+  # Kind control-plane naming quirks — keep kubelet scrape tolerant.
+  kubelet:
+    serviceMonitor:
+      https: false

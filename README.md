@@ -9,13 +9,13 @@
 ## Layout
 
 ```text
-local/                         # $0 laptop demo (Compose + Prom/Grafana + Kind config)
+local/
+  docker-compose.yml           # $0 API + Compose Prom/Grafana
+  bootstrap/                   # Kind e2e: Kyverno, policies, prom-stack, demo-app
 charts/
   bootstrap-layer/             # prerequisite charts (Kyverno, prom-stack, …)
   applications/                # workload charts (demo-app)
 helm-values/                   # mirrors charts/ — values only
-  bootstrap-layer/
-  applications/demo-app/environments/{dev,uat,prod}/
 argocd/                        # root App + ApplicationSet (auto from charts/)
 policy/kyverno/                # admission policies (referenced by bootstrap chart)
 infra/terraform/               # local | eks
@@ -24,15 +24,15 @@ infra/terraform/               # local | eks
 ## Demo in 15 minutes
 
 ```bash
+# Path A — Compose ($0, no cluster)
 make up
 curl -s http://127.0.0.1:8080/healthz   # {"status":"ok"}
 
-# Optional: verify cosign sig + SPDX attestation (Infisical public key)
-# make verify-image
-
-make cluster-deploy
-kubectl -n demo port-forward svc/demo-api 8080:80
-make cluster-down
+# Path B — Kind full platform (Kyverno + policies + monitoring + app)
+make bootstrap-up
+make bootstrap-status
+# Grafana http://127.0.0.1:30030  Prometheus http://127.0.0.1:30090
+make bootstrap-down
 ```
 
 Or: `./scripts/demo.sh`
@@ -74,7 +74,8 @@ flowchart TB
 
 | Layer | Choice |
 |-------|--------|
-| Local | `local/docker-compose.yml` |
+| Local Compose | `local/docker-compose.yml` |
+| Local Kind e2e | `local/bootstrap/` (`make bootstrap-up`) |
 | Bootstrap charts | Kyverno, kube-prometheus-stack, metrics-server, Infisical operator, Teleport |
 | Apps | `charts/applications/demo-app` |
 | Values | `helm-values/` (mirrors charts) |
