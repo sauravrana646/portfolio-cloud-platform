@@ -1,32 +1,43 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-api
+  name: {{ include "demo-app.apiName" . }}
   labels:
-    app: {{ .Release.Name }}-api
+    app: {{ include "demo-app.apiName" . }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app: {{ .Release.Name }}-api
+      app: {{ include "demo-app.apiName" . }}
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}-api
+        app: {{ include "demo-app.apiName" . }}
     spec:
+      serviceAccountName: {{ include "demo-app.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: api
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ include "demo-app.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - containerPort: {{ .Values.service.targetPort }}
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
           readinessProbe:
             httpGet:
               path: /healthz
-              port: {{ .Values.service.targetPort }}
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /healthz
-              port: {{ .Values.service.targetPort }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

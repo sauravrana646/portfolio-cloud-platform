@@ -2,15 +2,27 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ .Release.Name }}-api
+  name: {{ include "demo-app.apiName" . }}
+  labels:
+    app: {{ include "demo-app.apiName" . }}
 spec:
   podSelector:
     matchLabels:
-      app: {{ .Release.Name }}-api
+      app: {{ include "demo-app.apiName" . }}
   policyTypes:
     - Ingress
+    - Egress
   ingress:
     - ports:
         - protocol: TCP
           port: {{ .Values.service.targetPort }}
+  # Allow DNS + nothing else by default (demo-grade default-deny egress).
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
 {{- end }}

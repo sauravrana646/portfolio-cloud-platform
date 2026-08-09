@@ -1,0 +1,30 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-image-digest
+  annotations:
+    policies.kyverno.io/title: Require image digest
+    policies.kyverno.io/category: Supply Chain
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Workload images in demo namespaces must be pinned by digest.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-digest
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - demo
+                - demo-uat
+                - demo-prod
+      validate:
+        message: "Images must use a digest (@sha256:...) — no mutable tags alone."
+        pattern:
+          spec:
+            containers:
+              - image: "*@sha256:*"

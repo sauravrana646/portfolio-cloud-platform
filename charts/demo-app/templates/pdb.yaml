@@ -2,10 +2,12 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ .Release.Name }}-api
+  name: {{ include "demo-app.apiName" . }}
+  labels:
+    app: {{ include "demo-app.apiName" . }}
 spec:
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
   selector:
     matchLabels:
-      app: {{ .Release.Name }}-api
+      app: {{ include "demo-app.apiName" . }}
 {{- end }}

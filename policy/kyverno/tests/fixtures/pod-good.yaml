@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: good
+  namespace: demo-prod
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+  containers:
+    - name: api
+      image: ghcr.io/sauravrana646/portfolio-secure-cicd@sha256:a407de4528243789ae9784099afbca03e066dcb9092f05f9ef3060b23145f1e3
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false

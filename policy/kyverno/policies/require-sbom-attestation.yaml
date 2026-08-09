@@ -1,0 +1,37 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-sbom-attestation
+  annotations:
+    policies.kyverno.io/title: Require SPDX SBOM attestation
+    policies.kyverno.io/category: Supply Chain
+    policies.kyverno.io/description: >-
+      Audit-mode SPDX attestation check. Promote to Enforce once Infisical key
+      sync and registry pulls are confirmed on the target cluster.
+spec:
+  validationFailureAction: Audit
+  background: false
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: check-spdx-attestation
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - demo-uat
+                - demo-prod
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/sauravrana646/portfolio-secure-cicd*"
+          attestations:
+            - type: https://spdx.dev/Document
+              attestors:
+                - count: 1
+                  entries:
+                    - keys:
+                        secret:
+                          name: cosign-public-key
+                          namespace: platform-system
+          required: true

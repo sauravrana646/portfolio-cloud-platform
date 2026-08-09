@@ -7,60 +7,540 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  HELM_VERSION: v3.17.2
+  TERRAFORM_VERSION: 1.11.3
+  KUBECONFORM_VERSION: v0.6.7
 
 jobs:
-  test:
+  changes:
+    name: detect path changes
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app/api
+    outputs:
+      terraform: ${{ steps.filter.outputs.terraform }}
+      helm: ${{ steps.filter.outputs.helm }}
+      kyverno: ${{ steps.filter.outputs.kyverno }}
+      images: ${{ steps.filter.outputs.images }}
+      compose: ${{ steps.filter.outputs.compose }}
+      argocd: ${{ steps.filter.outputs.argocd }}
+      ci: ${{ steps.filter.outputs.ci }}
+      any_platform: ${{ steps.any.outputs.any_platform }}
     steps:
       - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
+      - uses: dorny/paths-filter@v3.0.2
+        id: filter
         with:
-          python-version: "3.12.8"
-      - run: pip install -r requirements-dev.txt
-      - run: pytest -q
-
-  image:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: docker/setup-buildx-action@v3.10.0
-      - uses: docker/build-push-action@v6.18.0
-        with:
-          context: app/api
-          push: false
-          load: true
-          tags: portfolio-cloud-platform-api:ci
-      - name: Trivy image gate
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          image-ref: portfolio-cloud-platform-api:ci
-          severity: CRITICAL
-          exit-code: "1"
-          ignore-unfixed: true
-          scanners: vuln
+          filters: |
+            terraform:
+              - 'infra/terraform/**'
+            helm:
+              - 'charts/**'
+              - 'deploy/environments/**'
+              - 'deploy/platform/**'
+              - 'Makefile'
+            kyverno:
+              - 'policy/kyverno/**'
+            images:
+              - 'deploy/environments/**/images.yaml'
+            compose:
+              - 'docker-compose.yml'
+              - 'monitoring/**'
+              - 'scripts/demo.sh'
+            argocd:
+              - 'argocd/**'
+              - 'platform/**'
+            ci:
+              - '.github/workflows/ci.yml'
+      - name: Force all gates when CI workflow changes
+        id: any
+        run: |
+          set -euo pipefail
+          # When the workflow itself changes, run every section once.
+          if [ "${{ steps.filter.outputs.ci }}" = "true" ]; then
+            echo "any_platform=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any_platform=false" >> "$GITHUB_OUTPUT"
+          fi
 
   helm:
+    name: helm lint · template · validate
+    needs: changes
+    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.compose == 'true' || needs.changes.outputs.any_platform == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.summary.outputs.outcome }}
+      summary: ${{ steps.summary.outputs.summary }}
     steps:
       - uses: actions/checkout@v4.2.2
+
+      - name: Compose config
+        if: needs.changes.outputs.compose == 'true' || needs.changes.outputs.any_platform == 'true'
+        run: docker compose config -q
+
       - uses: azure/setup-helm@v4.3.0
         with:
-          version: v3.17.2
-      - run: helm lint charts/demo-app
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C /tmp
+          sudo install /tmp/kubeconform /usr/local/bin/kubeconform
+
+      - name: Helm lint
+        run: helm lint charts/demo-app
+
+      - name: Helm template (dev / uat / prod)
+        id: template
+        run: |
+          set -euo pipefail
+          mkdir -p rendered
+          render() {
+            local env="$1"; shift
+            local out="rendered/${env}.yaml"
+            helm template "demo-${env}" charts/demo-app "$@" > "$out"
+            echo "Rendered ${out} ($(wc -l < "$out") lines)"
+          }
+          render dev \
+            -f charts/demo-app/values.yaml \
+            -f deploy/environments/dev/images.yaml \
+            -f deploy/environments/dev/values.yaml
+          render uat \
+            -f charts/demo-app/values.yaml \
+            -f charts/demo-app/values-staging.yaml \
+            -f deploy/environments/uat/images.yaml \
+            -f deploy/environments/uat/values.yaml
+          render prod \
+            -f charts/demo-app/values.yaml \
+            -f charts/demo-app/values-prod.yaml \
+            -f deploy/environments/prod/images.yaml \
+            -f deploy/environments/prod/values.yaml
+
+      - name: Kubeconform validate rendered manifests
+        id: kubeconform
+        run: |
+          set -euo pipefail
+          for f in rendered/*.yaml; do
+            echo "==> kubeconform $f"
+            kubeconform -summary -ignore-missing-schemas -kubernetes-version 1.31.0 "$f"
+          done
+
+      - name: Upload rendered manifests
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: helm-rendered
+          path: rendered/
+          if-no-files-found: error
+
+      - name: Build helm summary
+        id: summary
+        if: always()
+        run: |
+          set -euo pipefail
+          outcome="success"
+          if [ "${{ steps.template.outcome }}" != "success" ] || [ "${{ steps.kubeconform.outcome }}" != "success" ]; then
+            outcome="failure"
+          fi
+          {
+            echo "outcome=${outcome}"
+            echo "summary<<EOF"
+            echo "### Helm"
+            echo "| Check | Result |"
+            echo "|-------|--------|"
+            echo "| lint + template | \`${{ steps.template.outcome }}\` |"
+            echo "| kubeconform | \`${{ steps.kubeconform.outcome }}\` |"
+            echo ""
+            echo "Rendered: \`dev\`, \`uat\`, \`prod\` (artifact \`helm-rendered\`)."
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
   terraform:
+    name: terraform fmt · validate · plan
+    needs: changes
+    if: needs.changes.outputs.terraform == 'true' || needs.changes.outputs.any_platform == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.summary.outputs.outcome }}
+      summary: ${{ steps.summary.outputs.summary }}
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: true
+
+      - name: Terraform fmt
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform init
+        id: init
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Terraform plan (local)
+        id: plan_local
+        run: terraform plan -no-color -input=false -var='deploy_target=local' -out=tfplan-local
+        continue-on-error: true
+
+      - name: Terraform show plan (local)
+        id: show_local
+        if: steps.plan_local.outcome == 'success'
+        run: terraform show -no-color tfplan-local
+        continue-on-error: true
+
+      - name: Configure AWS credentials (optional)
+        id: aws
+        if: ${{ vars.AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Terraform plan (eks)
+        id: plan_eks
+        if: ${{ vars.AWS_ROLE_ARN != '' }}
+        run: terraform plan -no-color -input=false -var='deploy_target=eks' -out=tfplan-eks
+        continue-on-error: true
+
+      - name: Terraform show plan (eks)
+        id: show_eks
+        if: ${{ vars.AWS_ROLE_ARN != '' && steps.plan_eks.outcome == 'success' }}
+        run: terraform show -no-color tfplan-eks
+        continue-on-error: true
+
+      - name: Upload plan files
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: terraform-plans
+          path: |
+            infra/terraform/tfplan-local
+            infra/terraform/tfplan-eks
+          if-no-files-found: ignore
+
+      - name: Build terraform summary
+        id: summary
+        if: always()
+        env:
+          PLAN_LOCAL: ${{ steps.show_local.outputs.stdout || steps.plan_local.outputs.stdout }}
+          PLAN_EKS: ${{ steps.show_eks.outputs.stdout || steps.plan_eks.outputs.stdout }}
+        run: |
+          set -euo pipefail
+          outcome="success"
+          if [ "${{ steps.fmt.outcome }}" != "success" ] \
+            || [ "${{ steps.init.outcome }}" != "success" ] \
+            || [ "${{ steps.validate.outcome }}" != "success" ] \
+            || [ "${{ steps.plan_local.outcome }}" != "success" ]; then
+            outcome="failure"
+          fi
+          if [ "${{ vars.AWS_ROLE_ARN }}" != "" ] && [ "${{ steps.plan_eks.outcome }}" != "success" ] && [ "${{ steps.plan_eks.outcome }}" != "skipped" ]; then
+            outcome="failure"
+          fi
+
+          truncate() {
+            local s="$1"
+            local max=12000
+            if [ "${#s}" -gt "$max" ]; then
+              printf '%s\n\n… truncated (%s bytes total) …\n' "${s:0:max}" "${#s}"
+            else
+              printf '%s\n' "$s"
+            fi
+          }
+
+          LOCAL_BODY="$(truncate "${PLAN_LOCAL:-"(no plan output)"}")"
+          if [ "${{ vars.AWS_ROLE_ARN }}" = "" ]; then
+            EKS_SECTION="**EKS plan:** skipped (set repo variable \`AWS_ROLE_ARN\` + OIDC to enable)."
+          else
+            EKS_BODY="$(truncate "${PLAN_EKS:-"(no plan output)"}")"
+            EKS_SECTION="$(cat <<EKS
+          **EKS plan** (\`deploy_target=eks\`) — \`${{ steps.plan_eks.outcome }}\`
+
+          <details><summary>terraform plan (eks)</summary>
+
+          \`\`\`hcl
+          ${EKS_BODY}
+          \`\`\`
+          </details>
+          EKS
+          )"
+          fi
+
+          {
+            echo "outcome=${outcome}"
+            echo "summary<<EOF"
+            echo "### Terraform"
+            echo "| Check | Result |"
+            echo "|-------|--------|"
+            echo "| fmt | \`${{ steps.fmt.outcome }}\` |"
+            echo "| init | \`${{ steps.init.outcome }}\` |"
+            echo "| validate | \`${{ steps.validate.outcome }}\` |"
+            echo "| plan (local) | \`${{ steps.plan_local.outcome }}\` |"
+            if [ "${{ vars.AWS_ROLE_ARN }}" != "" ]; then
+              echo "| plan (eks) | \`${{ steps.plan_eks.outcome }}\` |"
+            else
+              echo "| plan (eks) | \`skipped\` |"
+            fi
+            echo ""
+            echo "**Local plan** (\`deploy_target=local\`) — no AWS resources"
+            echo ""
+            echo "<details><summary>terraform plan (local)</summary>"
+            echo ""
+            echo '```hcl'
+            echo "$LOCAL_BODY"
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "$EKS_SECTION"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fail job if terraform gates failed
+        if: steps.summary.outputs.outcome != 'success'
+        run: |
+          echo "Terraform gate failed — see summary / logs"
+          exit 1
+
+  verify-upstream-image:
+    name: cosign verify (Infisical)
+    needs: changes
+    if: needs.changes.outputs.images == 'true' || needs.changes.outputs.any_platform == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4.2.2
-      - uses: hashicorp/setup-terraform@v3.1.2
-        with:
-          terraform_version: 1.11.3
-      - working-directory: infra/terraform
+      - uses: sigstore/cosign-installer@v3.10.1
+      - name: Resolve pinned image ref
+        id: image
         run: |
-          terraform init -backend=false
-          terraform validate
+          set -euo pipefail
+          REPO=$(awk '/repository:/ {print $2; exit}' deploy/environments/prod/images.yaml)
+          DIGEST=$(awk '/digest:/ {print $2; exit}' deploy/environments/prod/images.yaml)
+          echo "image_ref=${REPO}@${DIGEST}" >> "$GITHUB_OUTPUT"
+      - name: Fetch cosign public key from Infisical
+        if: ${{ vars.INFISICAL_IDENTITY_ID != '' }}
+        uses: Infisical/secrets-action@v1.0.9
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
+          project-slug: devops-portfolio-x-k3-y
+          env-slug: ${{ vars.INFISICAL_ENV_SLUG }}
+          secret-path: /cosign
+          export-type: env
+      - name: Cosign verify + SPDX attestation
+        if: ${{ vars.INFISICAL_IDENTITY_ID != '' }}
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp)
+          printf '%s\n' "${cosign_public_key}" > "$tmp"
+          cosign verify --key "$tmp" "${{ steps.image.outputs.image_ref }}"
+          cosign verify-attestation --key "$tmp" --type spdx "${{ steps.image.outputs.image_ref }}" >/dev/null
+          rm -f "$tmp"
+          echo "Verified ${{ steps.image.outputs.image_ref }}"
+      - name: Skip notice
+        if: ${{ vars.INFISICAL_IDENTITY_ID == '' }}
+        run: echo "INFISICAL_IDENTITY_ID not set — skipping cosign verify."
+
+  kyverno-validate:
+    name: kyverno policy sanity
+    needs: changes
+    if: needs.changes.outputs.kyverno == 'true' || needs.changes.outputs.any_platform == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install kyverno CLI
+        run: |
+          set -euo pipefail
+          curl -sLO https://github.com/kyverno/kyverno/releases/download/v1.13.4/kyverno-cli_v1.13.4_linux_x86_64.tar.gz
+          tar -xzf kyverno-cli_v1.13.4_linux_x86_64.tar.gz
+          sudo install kyverno /usr/local/bin/
+      - name: Validate policy YAML + fixtures
+        run: |
+          set -euo pipefail
+          grep -q 'kind: ClusterPolicy' policy/kyverno/policies/*.yaml
+          kyverno apply policy/kyverno/policies/require-digest.yaml \
+            --resource policy/kyverno/tests/fixtures/pod-good.yaml
+          kyverno apply policy/kyverno/policies/disallow-latest-tag.yaml \
+            --resource policy/kyverno/tests/fixtures/pod-bad-latest.yaml 2>&1 \
+            | tee /tmp/kyverno-bad.out
+          if ! grep -qiE 'fail|error|violation|blocked' /tmp/kyverno-bad.out; then
+            echo "Expected bad :latest pod to fail disallow-latest-tag" >&2
+            exit 1
+          fi
+
+  argocd-validate:
+    name: argocd / platform manifests
+    needs: changes
+    if: needs.changes.outputs.argocd == 'true' || needs.changes.outputs.any_platform == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C /tmp
+          sudo install /tmp/kubeconform /usr/local/bin/kubeconform
+      - name: Validate Argo Application YAMLs
+        run: |
+          set -euo pipefail
+          pip install -q pyyaml
+          # Application CRDs are not in upstream k8s schemas — structural checks only.
+          for f in argocd/root.yaml argocd/application.yaml argocd/applications/*.yaml; do
+            echo "==> $f"
+            grep -q 'kind: Application' "$f"
+            python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" "$f"
+          done
+          python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" platform/infisical/infisical-secret-cosign.yaml
+          test -f deploy/platform/kyverno-values.yaml
+          test -f deploy/platform/infisical-operator-values.yaml
+          test -f deploy/platform/metrics-server-values.yaml
+
+  pr-report:
+    name: PR review comment
+    if: github.event_name == 'pull_request' && always()
+    needs: [changes, helm, terraform, verify-upstream-image, kyverno-validate, argocd-validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Post / update sticky CI report
+        uses: actions/github-script@v7.0.1
+        env:
+          HELM_RESULT: ${{ needs.helm.result }}
+          HELM_OUTCOME: ${{ needs.helm.outputs.outcome }}
+          HELM_SUMMARY: ${{ needs.helm.outputs.summary }}
+          TF_RESULT: ${{ needs.terraform.result }}
+          TF_OUTCOME: ${{ needs.terraform.outputs.outcome }}
+          TF_SUMMARY: ${{ needs.terraform.outputs.summary }}
+          VERIFY_RESULT: ${{ needs.verify-upstream-image.result }}
+          KYVERNO_RESULT: ${{ needs.kyverno-validate.result }}
+          ARGO_RESULT: ${{ needs.argocd-validate.result }}
+          FILTER_TF: ${{ needs.changes.outputs.terraform }}
+          FILTER_HELM: ${{ needs.changes.outputs.helm }}
+          FILTER_COMPOSE: ${{ needs.changes.outputs.compose }}
+          FILTER_KYVERNO: ${{ needs.changes.outputs.kyverno }}
+          FILTER_IMAGES: ${{ needs.changes.outputs.images }}
+          FILTER_ARGO: ${{ needs.changes.outputs.argocd }}
+          FILTER_CI: ${{ needs.changes.outputs.ci }}
+        with:
+          script: |
+            const marker = '<!-- portfolio-cloud-platform-ci-report -->';
+            const ok = (result, outcome) =>
+              result === 'skipped' || result === 'success' || outcome === 'success';
+
+            const helmOk = ok(process.env.HELM_RESULT, process.env.HELM_OUTCOME);
+            const tfOk = ok(process.env.TF_RESULT, process.env.TF_OUTCOME);
+            const verifyOk = ok(process.env.VERIFY_RESULT, 'success');
+            const kyvernoOk = ok(process.env.KYVERNO_RESULT, 'success');
+            const argoOk = ok(process.env.ARGO_RESULT, 'success');
+            const overall = helmOk && tfOk && verifyOk && kyvernoOk && argoOk
+              ? '✅ READY FOR REVIEW'
+              : '❌ CHANGES REQUIRED';
+
+            const section = (title, result, summary) => {
+              if (result === 'skipped') {
+                return `### ${title}\n_Skipped — no relevant path changes in this PR._`;
+              }
+              return summary && summary.trim().length
+                ? summary
+                : `### ${title}\nResult: \`${result}\``;
+            };
+
+            const body = [
+              marker,
+              `## Platform CI report — ${overall}`,
+              '',
+              `Commit: \`${context.sha.slice(0, 7)}\` · Workflow: [${context.workflow}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              '',
+              '### Path filters',
+              `| Area | Changed |`,
+              `|-------|---------|`,
+              `| terraform (\`infra/terraform/**\`) | \`${process.env.FILTER_TF}\` |`,
+              `| helm / deploy | \`${process.env.FILTER_HELM}\` |`,
+              `| compose / monitoring | \`${process.env.FILTER_COMPOSE}\` |`,
+              `| kyverno policies | \`${process.env.FILTER_KYVERNO}\` |`,
+              `| image digests | \`${process.env.FILTER_IMAGES}\` |`,
+              `| argocd / platform | \`${process.env.FILTER_ARGO}\` |`,
+              `| ci workflow | \`${process.env.FILTER_CI}\` |`,
+              '',
+              section('Helm', process.env.HELM_RESULT, process.env.HELM_SUMMARY),
+              '',
+              section('Terraform', process.env.TF_RESULT, process.env.TF_SUMMARY),
+              '',
+              `### Cosign verify\nResult: \`${process.env.VERIFY_RESULT}\``,
+              '',
+              `### Kyverno\nResult: \`${process.env.KYVERNO_RESULT}\``,
+              '',
+              `### Argo / platform manifests\nResult: \`${process.env.ARGO_RESULT}\``,
+              '',
+              '### Review checklist',
+              '- [ ] Only expected jobs ran for the paths you changed',
+              '- [ ] If Helm ran: manifests look correct (artifact `helm-rendered`)',
+              '- [ ] If Terraform ran: local plan has no surprise AWS resources',
+              '- [ ] If EKS plan ran: cost / destroy implications are acceptable',
+              '',
+              '_Jobs are path-filtered. Changing `.github/workflows/ci.yml` re-runs all sections._',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  gates:
+    name: merge gates
+    if: always()
+    needs: [changes, helm, terraform, verify-upstream-image, kyverno-validate, argocd-validate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require run jobs succeed; skipped is OK
+        run: |
+          set -euo pipefail
+          check() {
+            local name="$1" result="$2"
+            echo "${name}=${result}"
+            case "${result}" in
+              success|skipped) ;;
+              *)
+                echo "Gate failed: ${name} result=${result}" >&2
+                exit 1
+                ;;
+            esac
+          }
+          check helm "${{ needs.helm.result }}"
+          check terraform "${{ needs.terraform.result }}"
+          check verify-upstream-image "${{ needs.verify-upstream-image.result }}"
+          check kyverno-validate "${{ needs.kyverno-validate.result }}"
+          check argocd-validate "${{ needs.argocd-validate.result }}"
