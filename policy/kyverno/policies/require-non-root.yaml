@@ -17,9 +17,9 @@ spec:
                 - Pod
               namespaces:
                 - demo
-                - demo-dev
-                - demo-uat
-                - demo-prod
+                - demo-app-dev
+                - demo-app-uat
+                - demo-app-prod
       validate:
         message: "Running as root is not allowed."
         pattern:

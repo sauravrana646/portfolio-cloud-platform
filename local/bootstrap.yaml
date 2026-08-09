@@ -1,0 +1,3 @@
+# Deprecated: Kind config moved to local/bootstrap/kind.yaml
+# Use: make bootstrap-up
+#  or: kind create cluster --config local/bootstrap/kind.yaml

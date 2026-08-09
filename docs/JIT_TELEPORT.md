@@ -15,7 +15,7 @@ This pack uses **Teleport** for short-lived Kubernetes access.
 |-------|--------|
 | Teleport **proxy / auth** | Teleport Cloud **or** self-hosted `teleport-cluster` (not required in-repo by default) |
 | Teleport **kube agent** | Argo app `platform-teleport-agent` → Helm `teleport-kube-agent` 18.10.3 |
-| Values | `deploy/platform/teleport-kube-agent-values.yaml` |
+| Values | `helm-values/bootstrap-layer/teleport-kube-agent/values.yaml` |
 | Join token Secret | `teleport/teleport-kube-agent-join-token` (created out-of-band) |
 
 ## Bootstrap (once)
@@ -31,7 +31,8 @@ This pack uses **Teleport** for short-lived Kubernetes access.
    kubectl -n teleport create secret generic teleport-kube-agent-join-token \
      --from-literal=auth-token='<token>'
    ```
-4. Edit `deploy/platform/teleport-kube-agent-values.yaml`:
+4. Edit `helm-values/bootstrap-layer/teleport-kube-agent/values.yaml`
+   (keys under `teleport-kube-agent:`):
    - `proxyAddr` → your Teleport proxy (`example.teleport.sh:443`)
    - `kubeClusterName` → e.g. `portfolio-cloud-platform` or `orbstack-demo`
 5. Sync Argo app `platform-teleport-agent` (manual sync by design until configured).
@@ -41,7 +42,7 @@ This pack uses **Teleport** for short-lived Kubernetes access.
 ```bash
 tsh login --proxy=example.teleport.sh:443
 tsh kube login portfolio-cloud-platform
-kubectl -n demo-dev get pods   # short-lived cert via Teleport
+kubectl -n demo-app-dev get pods   # short-lived cert via Teleport
 tsh status                     # show expiry — the JIT talking point
 ```
 

@@ -5,9 +5,9 @@ Infisical (`/cosign` → `cosign-public-key`) into Secret
 `cosign-public-key` in namespace `platform-system` (see
 `policy/kyverno/cosign-key-secret.sample.yaml`).
 
-Install order (GitOps App-of-Apps waves): Kyverno Helm chart → Infisical
-secrets-operator → InfisicalSecret (cosign key) → these policies → demo apps.
-See `argocd/README.md`.
+GitOps path: `charts/bootstrap-layer/kyverno-policies` (Kustomize wrapper)
+discovered by the charts ApplicationSet. Wave order: Kyverno Helm → Infisical
+operator → InfisicalSecret → these policies → workload apps. See `argocd/README.md`.
 
 | Policy | Mode (suggested) |
 |--------|------------------|

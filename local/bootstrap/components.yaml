@@ -1,0 +1,77 @@
+# Declarative local bootstrap order (mirrors Argo sync waves).
+# Consumed by local/bootstrap/scripts/up.sh — keep in sync when adding charts.
+cluster:
+  name: portfolio-cloud-platform
+  kindConfig: local/bootstrap/kind.yaml
+
+# Optional platform pieces (off by default for laptop Kind).
+optional:
+  infisical-operator: false
+  teleport-kube-agent: false
+
+components:
+  - name: metrics-server
+    wave: 0
+    type: helm
+    chart: charts/bootstrap-layer/metrics-server
+    namespace: kube-system
+    releaseName: metrics-server
+    values:
+      - helm-values/bootstrap-layer/metrics-server/values.yaml
+      - local/bootstrap/values/metrics-server.yaml
+
+  - name: kyverno
+    wave: 0
+    type: helm
+    chart: charts/bootstrap-layer/kyverno
+    namespace: kyverno
+    releaseName: kyverno
+    createNamespace: true
+    values:
+      - helm-values/bootstrap-layer/kyverno/values.yaml
+      - local/bootstrap/values/kyverno.yaml
+    wait: true
+
+  - name: kube-prometheus-stack
+    wave: 0
+    type: helm
+    chart: charts/bootstrap-layer/kube-prometheus-stack
+    namespace: monitoring
+    releaseName: kube-prometheus-stack
+    createNamespace: true
+    values:
+      - helm-values/bootstrap-layer/kube-prometheus-stack/values.yaml
+      - local/bootstrap/values/kube-prometheus-stack.yaml
+    wait: true
+
+  - name: platform-namespaces
+    wave: 1
+    type: manifest
+    path: local/bootstrap/manifests/namespaces.yaml
+
+  - name: cosign-public-key
+    wave: 2
+    type: cosign-secret
+    namespace: platform-system
+    secretName: cosign-public-key
+    # Created from COSIGN_PUBLIC_KEY / Infisical; see scripts/up.sh
+
+  - name: kyverno-policies
+    wave: 3
+    type: kustomize
+    path: charts/bootstrap-layer/kyverno-policies
+    waitPolicies: true
+
+  - name: demo-app
+    wave: 10
+    type: helm
+    chart: charts/applications/demo-app
+    namespace: demo-app-dev
+    releaseName: demo-app
+    createNamespace: true
+    values:
+      - helm-values/applications/demo-app/values.yaml
+      - helm-values/applications/demo-app/environments/dev/values.yaml
+      - helm-values/applications/demo-app/environments/dev/images.yaml
+      - local/bootstrap/values/demo-app.yaml
+    wait: true

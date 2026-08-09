@@ -6,20 +6,33 @@
 
 ![Demo: Compose stack and local /healthz](docs/images/demo.jpg)
 
+## Layout
+
+```text
+local/
+  docker-compose.yml           # $0 API + Compose Prom/Grafana
+  bootstrap/                   # Kind e2e: Kyverno, policies, prom-stack, demo-app
+charts/
+  bootstrap-layer/             # prerequisite charts (Kyverno, prom-stack, …)
+  applications/                # workload charts (demo-app)
+helm-values/                   # mirrors charts/ — values only
+argocd/                        # root App + ApplicationSet (auto from charts/)
+policy/kyverno/                # admission policies (referenced by bootstrap chart)
+infra/terraform/               # local | eks
+```
+
 ## Demo in 15 minutes
 
 ```bash
-# Pull digest-pinned signed image (no local app build)
-docker compose up -d
+# Path A — Compose ($0, no cluster)
+make up
 curl -s http://127.0.0.1:8080/healthz   # {"status":"ok"}
 
-# Optional: verify cosign sig + SPDX attestation (Infisical public key)
-# make verify-image
-
-# OrbStack / existing cluster
-make cluster-deploy
-kubectl -n demo port-forward svc/demo-api 8080:80
-make cluster-down
+# Path B — Kind full platform (Kyverno + policies + monitoring + app)
+make bootstrap-up
+make bootstrap-status
+# Grafana http://127.0.0.1:30030  Prometheus http://127.0.0.1:30090
+make bootstrap-down
 ```
 
 Or: `./scripts/demo.sh`
@@ -31,8 +44,6 @@ Or: `./scripts/demo.sh`
 | Build, Trivy, promotion, cosign **sign**, SBOM, GHCR release | [portfolio-secure-cicd](https://github.com/sauravrana646/portfolio-secure-cicd) |
 | Digest pin, Infisical **verify**, Helm/Argo/EKS, Kyverno | **This repo** |
 
-Pinned release (example): `ghcr.io/sauravrana646/portfolio-secure-cicd@sha256:a407de4528243789ae9784099afbca03e066dcb9092f05f9ef3060b23145f1e3` (`v0.1.0`).
-
 ## Architecture
 
 ```mermaid
@@ -40,60 +51,39 @@ flowchart TB
   subgraph upstream [portfolio-secure-cicd]
     Rel[Signed GHCR release]
   end
-  subgraph local [Local $0]
-    Compose[Compose]
-    Helm[Helm demo-app]
+  subgraph localpath [local/ — $0]
+    Compose[Compose + Prom/Grafana]
   end
-  subgraph guard [Guardrails]
-    Inf[Infisical cosign-public-key]
-    Kyverno[Kyverno verify]
-    Inf --> Kyverno
+  subgraph boot [charts/bootstrap-layer]
+    Kyverno[Kyverno]
+    Prom[kube-prometheus-stack]
+    InfOp[Infisical operator]
+    Teleport[Teleport agent]
   end
-  subgraph gitops [GitOps]
-    Argo[Argo CD envs]
-  end
-  subgraph cloud [EKS opt-in]
-    TF[Terraform deploy_target=eks]
+  subgraph apps [charts/applications]
+    Demo[demo-app]
   end
   Rel --> Compose
-  Rel --> Helm
-  Rel --> Argo
-  Inf --> Compose
-  Kyverno --> Argo
-  TF --> Argo
+  Rel --> Demo
+  InfOp --> Kyverno
+  Kyverno --> Demo
+  boot --> apps
 ```
 
 ## Stack
 
 | Layer | Choice |
 |-------|--------|
-| Workload image | Signed `portfolio-secure-cicd` from GHCR (digest pin) |
-| Local | Docker Compose |
-| K8s | Helm chart + Argo CD App-of-Apps |
-| Platform Helm deps | Kyverno, Infisical secrets-operator, metrics-server, **Teleport kube-agent** (JIT) |
-| Policy | Kyverno ClusterPolicies (digest, non-root, cosign verify) |
-| JIT access | Teleport (`tsh`) — not AWS Identity Center / SSM |
-| Secrets | Infisical Operator sync + CI OIDC for cosign **public** key |
-| IaC | Terraform `local` \| `eks` (no ECS) |
-| Observability | Prometheus + Grafana (Compose) |
-| CI | Path-filtered gates (helm / terraform / kyverno / images / argocd); sticky PR comment; optional Infisical cosign verify + EKS plan via `AWS_ROLE_ARN` |
+| Local Compose | `local/docker-compose.yml` |
+| Local Kind e2e | `local/bootstrap/` (`make bootstrap-up`) |
+| Bootstrap charts | Kyverno, kube-prometheus-stack, metrics-server, Infisical operator, Teleport |
+| Apps | `charts/applications/demo-app` |
+| Values | `helm-values/` (mirrors charts) |
+| GitOps | Argo CD ApplicationSet over `charts/` |
+| JIT | Teleport (`docs/JIT_TELEPORT.md`) |
+| IaC | Terraform `local` \| `eks` |
 
-## Cost
-
-| Path | Cost |
-|------|------|
-| Compose / local Helm | ~$0 |
-| Infisical Free (verify identity) | $0 within free tier |
-| EKS sandbox | Control plane ~$70–75/mo + node; **no NAT** by default; destroy when done |
-
-See `docs/PLATFORM_IMPROVEMENT_PLAN.md` and `infra/terraform/README.md`.
-
-## Security notes
-
-- Non-root pod security contexts in the chart
-- Kyverno policies under `policy/kyverno/`
-- Cosign verify uses Infisical (`devops-portfolio-x-k3-y` / `/cosign` / `cosign-public-key`) — never private keys here
-- **Do not `terraform apply` without sandbox approval**
+See `argocd/README.md`, `helm-values/README.md`, `docs/architecture.md`.
 
 ## Hire me for…
 

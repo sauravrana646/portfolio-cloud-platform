@@ -22,8 +22,8 @@ spec:
                 - Pod
               namespaces:
                 - demo
-                - demo-uat
-                - demo-prod
+                - demo-app-uat
+                - demo-app-prod
       verifyImages:
         - imageReferences:
             - "ghcr.io/sauravrana646/portfolio-secure-cicd*"

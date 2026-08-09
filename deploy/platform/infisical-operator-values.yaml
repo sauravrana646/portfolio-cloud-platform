@@ -1,3 +1,0 @@
-# Infisical Secrets Operator — syncs cosign-public-key into the cluster.
-scopedRBAC: false
-installCRDs: true

@@ -1,0 +1,5 @@
+# Non-Helm bootstrap pieces (InfisicalSecret CR). Helm wrappers are synced by Argo.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - infisical-secrets

@@ -1,0 +1,33 @@
+# Lightweight defaults for demo clusters (raise for real staging).
+kube-prometheus-stack:
+  grafana:
+    adminPassword: changeme
+    persistence:
+      enabled: false
+    service:
+      type: ClusterIP
+  prometheus:
+    prometheusSpec:
+      retention: 7d
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+      storageSpec: {}
+  alertmanager:
+    enabled: true
+    alertmanagerSpec:
+      resources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+  # Keep node-exporter / kube-state-metrics on for a real monitoring story.
+  nodeExporter:
+    enabled: true
+  kubeStateMetrics:
+    enabled: true
+  defaultRules:
+    create: true

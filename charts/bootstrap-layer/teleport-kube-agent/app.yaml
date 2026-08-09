@@ -1,0 +1,15 @@
+name: bootstrap-teleport-kube-agent
+layer: bootstrap-layer
+chart: teleport-kube-agent
+chartPath: charts/bootstrap-layer/teleport-kube-agent
+valuesPath: bootstrap-layer/teleport-kube-agent
+namespace: teleport
+syncWave: "2"
+sourceType: helm
+releaseName: teleport-kube-agent
+serverSideApply: "true"
+# Manual sync until proxyAddr + join token are configured
+autoSync: "false"
+selfHeal: "false"
+prune: "true"
+finalizer: "true"

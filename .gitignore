@@ -44,3 +44,7 @@ sbom*.json
 
 # Docker
 *.tar
+
+# Helm dependency downloads (Argo / make helm-deps fetches these)
+charts/bootstrap-layer/**/charts/
+charts/bootstrap-layer/**/tmpcharts/

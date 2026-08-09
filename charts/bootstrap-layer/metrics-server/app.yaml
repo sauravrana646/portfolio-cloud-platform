@@ -1,0 +1,14 @@
+name: bootstrap-metrics-server
+layer: bootstrap-layer
+chart: metrics-server
+chartPath: charts/bootstrap-layer/metrics-server
+valuesPath: bootstrap-layer/metrics-server
+namespace: kube-system
+syncWave: "0"
+sourceType: helm
+releaseName: metrics-server
+serverSideApply: "true"
+autoSync: "true"
+selfHeal: "true"
+prune: "true"
+finalizer: "false"

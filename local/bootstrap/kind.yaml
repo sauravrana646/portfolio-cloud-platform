@@ -1,0 +1,30 @@
+# Kind cluster for local end-to-end platform bootstrap.
+# Usage: make bootstrap-up
+#    or: kind create cluster --config local/bootstrap/kind.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: portfolio-cloud-platform
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8081
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 8443
+        protocol: TCP
+      # Grafana NodePort (see local/bootstrap/values/kube-prometheus-stack.yaml)
+      - containerPort: 30030
+        hostPort: 30030
+        protocol: TCP
+      # Prometheus NodePort
+      - containerPort: 30090
+        hostPort: 30090
+        protocol: TCP
+  - role: worker

@@ -1,0 +1,32 @@
+# Values for charts/bootstrap-layer/kyverno (nested under dependency name).
+kyverno:
+  admissionController:
+    replicas: 1
+    rbac:
+      clusterRole:
+        extraResources:
+          - apiGroups: [""]
+            resources: ["secrets", "configmaps"]
+            verbs: ["get", "list", "watch"]
+  backgroundController:
+    replicas: 1
+  cleanupController:
+    replicas: 1
+  reportsController:
+    replicas: 1
+  features:
+    policyExceptions:
+      enabled: true
+  config:
+    webhooks:
+      namespaceSelector:
+        matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: NotIn
+            values:
+              - kube-system
+              - kyverno
+              - argocd
+              - infisical-system
+              - monitoring
+              - teleport

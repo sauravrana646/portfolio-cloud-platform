@@ -38,20 +38,17 @@ jobs:
               - 'infra/terraform/**'
             helm:
               - 'charts/**'
-              - 'deploy/environments/**'
-              - 'deploy/platform/**'
+              - 'helm-values/**'
               - 'Makefile'
             kyverno:
               - 'policy/kyverno/**'
             images:
-              - 'deploy/environments/**/images.yaml'
+              - 'helm-values/applications/**/images.yaml'
             compose:
-              - 'docker-compose.yml'
-              - 'monitoring/**'
+              - 'local/**'
               - 'scripts/demo.sh'
             argocd:
               - 'argocd/**'
-              - 'platform/**'
             ci:
               - '.github/workflows/ci.yml'
       - name: Force all gates when CI workflow changes
@@ -78,7 +75,7 @@ jobs:
 
       - name: Compose config
         if: needs.changes.outputs.compose == 'true' || needs.changes.outputs.any_platform == 'true'
-        run: docker compose config -q
+        run: docker compose -f local/docker-compose.yml config -q
 
       - uses: azure/setup-helm@v4.3.0
         with:
@@ -92,33 +89,54 @@ jobs:
           sudo install /tmp/kubeconform /usr/local/bin/kubeconform
 
       - name: Helm lint
-        run: helm lint charts/demo-app
+        run: helm lint charts/applications/demo-app
+
+      - name: Helm dependency update (bootstrap wrappers)
+        run: make helm-deps
+
+      - name: Helm template local bootstrap overlays
+        run: |
+          set -euo pipefail
+          helm template local-kyverno charts/bootstrap-layer/kyverno \
+            -f helm-values/bootstrap-layer/kyverno/values.yaml \
+            -f local/bootstrap/values/kyverno.yaml >/dev/null
+          helm template local-prom charts/bootstrap-layer/kube-prometheus-stack \
+            -f helm-values/bootstrap-layer/kube-prometheus-stack/values.yaml \
+            -f local/bootstrap/values/kube-prometheus-stack.yaml >/dev/null
+          helm template local-ms charts/bootstrap-layer/metrics-server \
+            -f helm-values/bootstrap-layer/metrics-server/values.yaml \
+            -f local/bootstrap/values/metrics-server.yaml >/dev/null
+          helm template local-demo charts/applications/demo-app \
+            -f helm-values/applications/demo-app/values.yaml \
+            -f helm-values/applications/demo-app/environments/dev/values.yaml \
+            -f helm-values/applications/demo-app/environments/dev/images.yaml \
+            -f local/bootstrap/values/demo-app.yaml >/dev/null
 
       - name: Helm template (dev / uat / prod)
         id: template
         run: |
           set -euo pipefail
           mkdir -p rendered
+          CHART=charts/applications/demo-app
+          HV=helm-values/applications/demo-app
           render() {
             local env="$1"; shift
             local out="rendered/${env}.yaml"
-            helm template "demo-${env}" charts/demo-app "$@" > "$out"
+            helm template "demo-${env}" "$CHART" "$@" > "$out"
             echo "Rendered ${out} ($(wc -l < "$out") lines)"
           }
           render dev \
-            -f charts/demo-app/values.yaml \
-            -f deploy/environments/dev/images.yaml \
-            -f deploy/environments/dev/values.yaml
+            -f "$HV/values.yaml" \
+            -f "$HV/environments/dev/values.yaml" \
+            -f "$HV/environments/dev/images.yaml"
           render uat \
-            -f charts/demo-app/values.yaml \
-            -f charts/demo-app/values-staging.yaml \
-            -f deploy/environments/uat/images.yaml \
-            -f deploy/environments/uat/values.yaml
+            -f "$HV/values.yaml" \
+            -f "$HV/environments/uat/values.yaml" \
+            -f "$HV/environments/uat/images.yaml"
           render prod \
-            -f charts/demo-app/values.yaml \
-            -f charts/demo-app/values-prod.yaml \
-            -f deploy/environments/prod/images.yaml \
-            -f deploy/environments/prod/values.yaml
+            -f "$HV/values.yaml" \
+            -f "$HV/environments/prod/values.yaml" \
+            -f "$HV/environments/prod/images.yaml"
 
       - name: Kubeconform validate rendered manifests
         id: kubeconform
@@ -332,8 +350,8 @@ jobs:
         id: image
         run: |
           set -euo pipefail
-          REPO=$(awk '/repository:/ {print $2; exit}' deploy/environments/prod/images.yaml)
-          DIGEST=$(awk '/digest:/ {print $2; exit}' deploy/environments/prod/images.yaml)
+          REPO=$(awk '/repository:/ {print $2; exit}' helm-values/applications/demo-app/environments/prod/images.yaml)
+          DIGEST=$(awk '/digest:/ {print $2; exit}' helm-values/applications/demo-app/environments/prod/images.yaml)
           echo "image_ref=${REPO}@${DIGEST}" >> "$GITHUB_OUTPUT"
       - name: Fetch cosign public key from Infisical
         if: ${{ vars.INFISICAL_IDENTITY_ID != '' }}
@@ -410,15 +428,34 @@ jobs:
           set -euo pipefail
           pip install -q pyyaml
           # Application CRDs are not in upstream k8s schemas — structural checks only.
-          for f in argocd/root.yaml argocd/application.yaml argocd/applications/*.yaml; do
+          for f in argocd/root.yaml argocd/appsets/*.yaml; do
             echo "==> $f"
-            grep -q 'kind: Application' "$f"
             python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" "$f"
           done
-          python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" platform/infisical/infisical-secret-cosign.yaml
-          test -f deploy/platform/kyverno-values.yaml
-          test -f deploy/platform/infisical-operator-values.yaml
-          test -f deploy/platform/metrics-server-values.yaml
+          grep -q 'kind: Application' argocd/root.yaml
+          grep -q 'kind: ApplicationSet' argocd/appsets/charts.yaml
+          # Discovery contract: every chart app.yaml / apps/*.yaml is valid + paths exist
+          python3 scripts/validate-chart-apps.py
+          python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" \
+            charts/bootstrap-layer/infisical-secrets/infisical-secret-cosign.yaml
+          test -f helm-values/bootstrap-layer/kyverno/values.yaml
+          test -f helm-values/bootstrap-layer/kube-prometheus-stack/values.yaml
+          test -f helm-values/bootstrap-layer/infisical-operator/values.yaml
+          test -f helm-values/bootstrap-layer/metrics-server/values.yaml
+          test -f charts/bootstrap-layer/kyverno/Chart.yaml
+          test -f charts/bootstrap-layer/kyverno-policies/app.yaml
+          test -f charts/applications/demo-app/Chart.yaml
+          test -f charts/applications/demo-app/apps/dev.yaml
+          # Local Kind bootstrap contract
+          python3 -c "import yaml; yaml.safe_load(open('local/bootstrap/components.yaml')); yaml.safe_load(open('local/bootstrap/kind.yaml'))"
+          bash -n local/bootstrap/scripts/up.sh
+          bash -n local/bootstrap/scripts/down.sh
+          bash -n local/bootstrap/scripts/status.sh
+          bash -n local/bootstrap/scripts/lib/cosign-secret.sh
+          test -f local/bootstrap/values/kyverno.yaml
+          test -f local/bootstrap/values/kube-prometheus-stack.yaml
+          test -f local/bootstrap/manifests/namespaces.yaml
+
 
   pr-report:
     name: PR review comment
@@ -482,11 +519,11 @@ jobs:
               `| Area | Changed |`,
               `|-------|---------|`,
               `| terraform (\`infra/terraform/**\`) | \`${process.env.FILTER_TF}\` |`,
-              `| helm / deploy | \`${process.env.FILTER_HELM}\` |`,
-              `| compose / monitoring | \`${process.env.FILTER_COMPOSE}\` |`,
+              `| helm / helm-values | \`${process.env.FILTER_HELM}\` |`,
+              `| local/ (compose) | \`${process.env.FILTER_COMPOSE}\` |`,
               `| kyverno policies | \`${process.env.FILTER_KYVERNO}\` |`,
               `| image digests | \`${process.env.FILTER_IMAGES}\` |`,
-              `| argocd / platform | \`${process.env.FILTER_ARGO}\` |`,
+              `| argocd | \`${process.env.FILTER_ARGO}\` |`,
               `| ci workflow | \`${process.env.FILTER_CI}\` |`,
               '',
               section('Helm', process.env.HELM_RESULT, process.env.HELM_SUMMARY),

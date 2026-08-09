@@ -1,30 +1,77 @@
-# Argo CD — App-of-Apps
-
-Bootstrap:
+# Argo CD — generic App-of-Apps
 
 ```bash
 kubectl apply -f argocd/root.yaml
 ```
 
-`platform-root` syncs everything under `argocd/applications/`.
+`platform-root` syncs `argocd/appsets/`, which installs the **`charts` ApplicationSet**.
+That ApplicationSet loops over discovery files under `charts/` and creates one
+Application per match — no hand-written Application manifests per chart.
 
-## Sync order
+## Onboard a chart (automatic Application)
 
-| Wave | App | Type |
-|------|-----|------|
-| 0 | `platform-metrics-server` | Helm (`metrics-server`) |
-| 0 | `platform-kyverno` | Helm (`kyverno`) |
-| 1 | `platform-infisical-operator` | Helm (`secrets-operator`) |
-| 2 | `platform-infisical-secrets` | Kustomize (`InfisicalSecret` CR) |
-| 2 | `platform-teleport-agent` | Helm (`teleport-kube-agent`) — JIT kubectl |
-| 3 | `platform-kyverno-policies` | Kustomize (ClusterPolicies) |
-| 10 | `demo-dev` / `demo-uat` / `demo-prod` | Helm (`charts/demo-app`) |
+| Layer | Add | Discovery file | Values |
+|-------|-----|----------------|--------|
+| Bootstrap | `charts/bootstrap-layer/<chart>/` | `app.yaml` | `helm-values/bootstrap-layer/<chart>/values.yaml` (Helm only) |
+| Workload | `charts/applications/<chart>/` | `apps/<env>.yaml` per env | `helm-values/applications/<chart>/` + `environments/<env>/` |
 
-Not using ApplicationSets — plain Applications under App-of-Apps.
+### Naming
+
+| Kind | Application name | Namespace |
+|------|------------------|-----------|
+| Bootstrap | `bootstrap-<chart>` | from `app.yaml` (component default) |
+| Workload env | `<chart>-<env>` | `<chart>-<env>` (e.g. `demo-app-dev`) |
+
+### `app.yaml` / `apps/<env>.yaml` fields
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `name` | yes | Application CR name |
+| `layer` | yes | `bootstrap-layer` \| `applications` |
+| `chart` | yes | Folder name under the layer |
+| `chartPath` | yes | Git path to chart / kustomize dir |
+| `valuesPath` | Helm | Path under `helm-values/` (no prefix) |
+| `namespace` | yes | Destination namespace |
+| `syncWave` | yes | String wave (`"0"` … `"10"`) |
+| `sourceType` | no | `helm` (default) \| `directory` |
+| `releaseName` | no | Defaults to `chart` |
+| `env` | workloads | Enables `environments/<env>/values.yaml` |
+| `imagePin` | workloads | `"true"` also mounts `environments/<env>/images.yaml` |
+| `autoSync` / `selfHeal` / `prune` | no | Strings `"true"` / `"false"` (default on except where set) |
+| `serverSideApply` | no | `"true"` for large CRD charts |
+| `finalizer` | no | `"false"` to omit app finalizer |
+
+### Values layout (mirrors charts)
+
+```text
+helm-values/
+  bootstrap-layer/<chart>/values.yaml
+  applications/<chart>/
+    values.yaml
+    environments/<env>/
+      values.yaml
+      images.yaml          # when imagePin: "true"
+```
+
+Workload valueFiles order: base → env values → env images.
+
+## Sync waves
+
+| Wave | Apps |
+|------|------|
+| 0 | metrics-server, kyverno, kube-prometheus-stack |
+| 1 | infisical-operator |
+| 2 | infisical-secrets, teleport-kube-agent |
+| 3 | kyverno-policies |
+| 10 | `*-dev` / `*-uat` / `*-prod` workload apps |
+
+Local paths (not Argo): Compose under `local/docker-compose.yml`; full Kind
+bootstrap (same charts/policies/monitoring) under `local/bootstrap/` —
+`make bootstrap-up`.
 
 ## Before first sync
 
-1. Install Argo CD on the cluster.
-2. Patch `platform/infisical/infisical-secret-cosign.yaml` with a real Infisical machine `identityId` (Kubernetes auth).
-3. For Teleport JIT: set `proxyAddr` in `deploy/platform/teleport-kube-agent-values.yaml` and create the join-token Secret (see `docs/JIT_TELEPORT.md`). App sync is **manual** until then.
-4. Prefer syncing platform apps before demos (waves handle this automatically).
+1. Install Argo CD (ApplicationSet controller enabled).
+2. Patch Infisical identity in `charts/bootstrap-layer/infisical-secrets/`.
+3. Teleport: set `proxyAddr` + join-token (`docs/JIT_TELEPORT.md`), then sync.
+4. Wrapper charts: Argo runs `helm dependency build` (or `make helm-deps`).

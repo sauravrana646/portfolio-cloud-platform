@@ -1,0 +1,20 @@
+# Teleport Kubernetes agent — JIT kubectl (not AWS Identity Center / SSM).
+# Create join token Secret before sync (see docs/JIT_TELEPORT.md).
+teleport-kube-agent:
+  roles: kube
+  proxyAddr: REPLACE_TELEPORT_PROXY_ADDR
+  kubeClusterName: portfolio-cloud-platform
+  joinTokenSecret:
+    create: false
+    name: teleport-kube-agent-join-token
+  highAvailability:
+    replicaCount: 1
+    podDisruptionBudget:
+      enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
