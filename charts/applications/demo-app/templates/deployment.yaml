@@ -27,6 +27,13 @@ spec:
               containerPort: {{ .Values.service.targetPort }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            # gunicorn WorkerTmp needs a writable dir when rootfs is read-only
+            - name: TMPDIR
+              value: /tmp
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           readinessProbe:
             httpGet:
               path: /healthz
@@ -41,3 +48,6 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
