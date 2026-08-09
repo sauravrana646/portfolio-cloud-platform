@@ -18,6 +18,6 @@ Email **sauravrana646@gmail.com** with repo name, commit SHA, and reproduction s
 - Kyverno admission policies enforce digest / signature expectations on cluster paths.
 - Default path is local Compose or your kubecontext. Terraform `eks` is opt-in.
 - Prefer GitHub OIDC → AWS for any Terraform plan/apply. No long-lived AWS keys in git.
-- CI always runs `terraform plan -var='deploy_target=local'`. Optional EKS plan when repo variable `AWS_ROLE_ARN` (and `AWS_REGION`) is set for OIDC.
+- CI runs `terraform plan -var='deploy_target=local'` only when `infra/terraform/**` (or the CI workflow) changes. Optional EKS plan when repo variable `AWS_ROLE_ARN` (and `AWS_REGION`) is set for OIDC. Other jobs are similarly path-filtered.
 - Do not `terraform apply` without a sandbox account and explicit approval.
 - Require the GitHub check **merge gates** (and optionally individual helm/terraform jobs) in branch protection before merge.

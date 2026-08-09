@@ -75,7 +75,7 @@ flowchart TB
 | Secrets | Infisical Operator sync + CI OIDC for cosign **public** key |
 | IaC | Terraform `local` \| `eks` (no ECS) |
 | Observability | Prometheus + Grafana (Compose) |
-| CI | Helm lint/template/kubeconform + Terraform fmt/validate/plan; sticky PR comment; optional Infisical cosign verify + EKS plan via `AWS_ROLE_ARN` |
+| CI | Path-filtered gates (helm / terraform / kyverno / images / argocd); sticky PR comment; optional Infisical cosign verify + EKS plan via `AWS_ROLE_ARN` |
 
 ## Cost
 
