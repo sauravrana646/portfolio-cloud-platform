@@ -1,0 +1,10 @@
+apiVersion: v2
+name: teleport-kube-agent
+description: Wrapper chart — Teleport kube agent for JIT kubectl (bootstrap)
+type: application
+version: 0.1.0
+appVersion: "18.10.3"
+dependencies:
+  - name: teleport-kube-agent
+    version: 18.10.3
+    repository: https://charts.releases.teleport.dev

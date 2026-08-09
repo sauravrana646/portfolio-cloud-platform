@@ -1,5 +1,6 @@
 # Local demo: pull the signed portfolio-secure-cicd release (digest-pinned).
-# Override IMAGE_REF in .env if needed. Redis/worker are not part of this path.
+# Run from repo root: docker compose -f local/docker-compose.yml up -d
+# Or: make up
 services:
   api:
     image: ${IMAGE_REF:-ghcr.io/sauravrana646/portfolio-secure-cicd@sha256:a407de4528243789ae9784099afbca03e066dcb9092f05f9ef3060b23145f1e3}

@@ -13,12 +13,13 @@ spec:
       ref: values
     - repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
       targetRevision: main
-      path: charts/demo-app
+      path: charts/applications/demo-app
       helm:
         valueFiles:
-          - values-staging.yaml
-          - $values/deploy/environments/uat/images.yaml
-          - $values/deploy/environments/uat/values.yaml
+          - $values/helm-values/applications/demo-app/values.yaml
+          - $values/helm-values/applications/demo-app/values-staging.yaml
+          - $values/helm-values/applications/demo-app/environments/uat/images.yaml
+          - $values/helm-values/applications/demo-app/environments/uat/values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: demo-uat

@@ -3,9 +3,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+COMPOSE=(docker compose -f local/docker-compose.yml)
 
 echo "==> Compose up (digest-pinned GHCR image)"
-docker compose up -d
+"${COMPOSE[@]}" up -d
 echo "==> Waiting for /healthz"
 for i in $(seq 1 30); do
   if curl -sf http://127.0.0.1:8080/healthz >/dev/null; then
@@ -18,7 +19,7 @@ for i in $(seq 1 30); do
   sleep 2
   if [[ "$i" -eq 30 ]]; then
     echo "API did not become healthy" >&2
-    docker compose logs api >&2 || true
+    "${COMPOSE[@]}" logs api >&2 || true
     exit 1
   fi
 done

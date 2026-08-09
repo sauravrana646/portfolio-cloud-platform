@@ -13,13 +13,13 @@ spec:
     - repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
       targetRevision: main
       ref: values
-    - repoURL: https://kyverno.github.io/kyverno
-      chart: kyverno
-      targetRevision: 3.8.2
+    - repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
+      targetRevision: main
+      path: charts/bootstrap-layer/kyverno
       helm:
         releaseName: kyverno
         valueFiles:
-          - $values/deploy/platform/kyverno-values.yaml
+          - $values/helm-values/bootstrap-layer/kyverno/values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: kyverno

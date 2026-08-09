@@ -1,0 +1,11 @@
+apiVersion: v2
+name: infisical-operator
+description: Wrapper chart — Infisical secrets-operator (bootstrap prerequisite)
+type: application
+version: 0.1.0
+appVersion: "0.11.7"
+dependencies:
+  - name: secrets-operator
+    version: 0.11.7
+    repository: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/
+    alias: secrets-operator

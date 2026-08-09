@@ -11,12 +11,13 @@ spec:
     - repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
       targetRevision: main
       ref: values
-    - repoURL: https://kubernetes-sigs.github.io/metrics-server/
-      chart: metrics-server
-      targetRevision: 3.13.1
+    - repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
+      targetRevision: main
+      path: charts/bootstrap-layer/metrics-server
       helm:
+        releaseName: metrics-server
         valueFiles:
-          - $values/deploy/platform/metrics-server-values.yaml
+          - $values/helm-values/bootstrap-layer/metrics-server/values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: kube-system

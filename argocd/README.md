@@ -1,30 +1,36 @@
 # Argo CD — App-of-Apps
 
-Bootstrap:
-
 ```bash
 kubectl apply -f argocd/root.yaml
 ```
 
-`platform-root` syncs everything under `argocd/applications/`.
+`platform-root` syncs `argocd/applications/`.
+
+## Layout
+
+| Layer | Charts | Values |
+|-------|--------|--------|
+| Bootstrap | `charts/bootstrap-layer/*` | `helm-values/bootstrap-layer/*` |
+| Apps | `charts/applications/*` | `helm-values/applications/*` |
 
 ## Sync order
 
-| Wave | App | Type |
-|------|-----|------|
-| 0 | `platform-metrics-server` | Helm (`metrics-server`) |
-| 0 | `platform-kyverno` | Helm (`kyverno`) |
-| 1 | `platform-infisical-operator` | Helm (`secrets-operator`) |
-| 2 | `platform-infisical-secrets` | Kustomize (`InfisicalSecret` CR) |
-| 2 | `platform-teleport-agent` | Helm (`teleport-kube-agent`) — JIT kubectl |
-| 3 | `platform-kyverno-policies` | Kustomize (ClusterPolicies) |
-| 10 | `demo-dev` / `demo-uat` / `demo-prod` | Helm (`charts/demo-app`) |
+| Wave | App | Source |
+|------|-----|--------|
+| 0 | `platform-metrics-server` | `charts/bootstrap-layer/metrics-server` |
+| 0 | `platform-kyverno` | `charts/bootstrap-layer/kyverno` |
+| 0 | `platform-kube-prometheus-stack` | `charts/bootstrap-layer/kube-prometheus-stack` |
+| 1 | `platform-infisical-operator` | `charts/bootstrap-layer/infisical-operator` |
+| 2 | `platform-infisical-secrets` | Kustomize `charts/bootstrap-layer/infisical-secrets` |
+| 2 | `platform-teleport-agent` | `charts/bootstrap-layer/teleport-kube-agent` |
+| 3 | `platform-kyverno-policies` | `policy/kyverno` |
+| 10 | `demo-*` | `charts/applications/demo-app` |
 
-Not using ApplicationSets — plain Applications under App-of-Apps.
+Local $0 demo (Compose Prometheus/Grafana) lives under `local/` — not Argo.
 
 ## Before first sync
 
-1. Install Argo CD on the cluster.
-2. Patch `platform/infisical/infisical-secret-cosign.yaml` with a real Infisical machine `identityId` (Kubernetes auth).
-3. For Teleport JIT: set `proxyAddr` in `deploy/platform/teleport-kube-agent-values.yaml` and create the join-token Secret (see `docs/JIT_TELEPORT.md`). App sync is **manual** until then.
-4. Prefer syncing platform apps before demos (waves handle this automatically).
+1. Install Argo CD.
+2. Patch Infisical identity in `charts/bootstrap-layer/infisical-secrets/infisical-secret-cosign.yaml`.
+3. Teleport: set `proxyAddr` in helm-values + join-token Secret (`docs/JIT_TELEPORT.md`).
+4. Wrapper charts: Argo runs `helm dependency build` on sync (or `make helm-deps` locally).

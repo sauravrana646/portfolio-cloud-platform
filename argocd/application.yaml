@@ -1,5 +1,5 @@
 # Legacy single Application for quick local demos.
-# Prefer argocd/root.yaml (App-of-Apps) for the enterprise layout.
+# Prefer argocd/root.yaml (App-of-Apps).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -13,11 +13,12 @@ spec:
       ref: values
     - repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
       targetRevision: main
-      path: charts/demo-app
+      path: charts/applications/demo-app
       helm:
         valueFiles:
-          - $values/deploy/environments/dev/images.yaml
-          - $values/deploy/environments/dev/values.yaml
+          - $values/helm-values/applications/demo-app/values.yaml
+          - $values/helm-values/applications/demo-app/environments/dev/images.yaml
+          - $values/helm-values/applications/demo-app/environments/dev/values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: demo

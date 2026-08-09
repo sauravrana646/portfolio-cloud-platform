@@ -1,24 +1,24 @@
-.PHONY: help up down test helm-lint helm-template tf-validate cluster-deploy cluster-down cluster-status plan apply verify-image compose-config
+.PHONY: help up down test helm-lint helm-template helm-deps tf-validate cluster-deploy cluster-down cluster-status plan apply verify-image compose-config
 
-IMAGE_FILE ?= deploy/environments/dev/images.yaml
+COMPOSE_FILE ?= local/docker-compose.yml
+IMAGE_FILE ?= helm-values/applications/demo-app/environments/dev/images.yaml
+CHART_APP ?= charts/applications/demo-app
 INFISICAL_PROJECT_SLUG ?= devops-portfolio-x-k3-y
 INFISICAL_ENV_SLUG ?= prod
 INFISICAL_SECRET_PATH ?= /cosign
 
 help:
-	@echo "up down compose-config verify-image helm-lint helm-template cluster-deploy cluster-down cluster-status tf-validate plan apply"
+	@echo "up down compose-config verify-image helm-deps helm-lint helm-template cluster-deploy cluster-down cluster-status tf-validate plan apply"
 
 up:
-	docker compose up -d
+	docker compose -f $(COMPOSE_FILE) up -d
 
 down:
-	docker compose down -v
+	docker compose -f $(COMPOSE_FILE) down -v
 
 compose-config:
-	docker compose config -q
+	docker compose -f $(COMPOSE_FILE) config -q
 
-# Fetch cosign-public-key from Infisical (OIDC/CLI login) and verify the pinned digest.
-# Requires: cosign, and either INFISICAL_* env from `infisical export` or a logged-in Infisical CLI.
 verify-image:
 	@set -euo pipefail; \
 	REPO=$$(awk '/repository:/ {print $$2; exit}' $(IMAGE_FILE)); \
@@ -42,24 +42,31 @@ verify-image:
 	rm -f "$$tmp"; \
 	echo "Signature + SPDX attestation OK"
 
+helm-deps:
+	@set -euo pipefail; \
+	for d in kyverno kube-prometheus-stack metrics-server infisical-operator teleport-kube-agent; do \
+	  echo "==> helm dependency update charts/bootstrap-layer/$$d"; \
+	  helm dependency update "charts/bootstrap-layer/$$d"; \
+	done
+
 helm-lint:
-	helm lint charts/demo-app
+	helm lint $(CHART_APP)
 
 helm-template:
-	helm template demo charts/demo-app \
-		-f charts/demo-app/values.yaml \
-		-f deploy/environments/dev/images.yaml \
-		-f deploy/environments/dev/values.yaml >/dev/null
-	helm template demo charts/demo-app \
-		-f charts/demo-app/values.yaml \
-		-f charts/demo-app/values-staging.yaml \
-		-f deploy/environments/uat/images.yaml \
-		-f deploy/environments/uat/values.yaml >/dev/null
-	helm template demo charts/demo-app \
-		-f charts/demo-app/values.yaml \
-		-f charts/demo-app/values-prod.yaml \
-		-f deploy/environments/prod/images.yaml \
-		-f deploy/environments/prod/values.yaml >/dev/null
+	helm template demo $(CHART_APP) \
+		-f helm-values/applications/demo-app/values.yaml \
+		-f helm-values/applications/demo-app/environments/dev/images.yaml \
+		-f helm-values/applications/demo-app/environments/dev/values.yaml >/dev/null
+	helm template demo $(CHART_APP) \
+		-f helm-values/applications/demo-app/values.yaml \
+		-f helm-values/applications/demo-app/values-staging.yaml \
+		-f helm-values/applications/demo-app/environments/uat/images.yaml \
+		-f helm-values/applications/demo-app/environments/uat/values.yaml >/dev/null
+	helm template demo $(CHART_APP) \
+		-f helm-values/applications/demo-app/values.yaml \
+		-f helm-values/applications/demo-app/values-prod.yaml \
+		-f helm-values/applications/demo-app/environments/prod/images.yaml \
+		-f helm-values/applications/demo-app/environments/prod/values.yaml >/dev/null
 
 tf-validate:
 	cd infra/terraform && terraform init -backend=false && terraform validate
@@ -70,16 +77,15 @@ plan:
 apply:
 	@echo "Refusing apply. Pass explicit approval and run terraform apply manually in a sandbox."
 
-# Uses current kubectl context (OrbStack, kind, k3d, etc.).
 cluster-deploy:
 	@echo "Using kubectl context: $$(kubectl config current-context)"
 	kubectl create namespace demo --dry-run=client -o yaml | kubectl apply -f -
-	helm upgrade --install demo charts/demo-app \
+	helm upgrade --install demo $(CHART_APP) \
 		--namespace demo \
-		-f charts/demo-app/values.yaml \
-		-f charts/demo-app/values-staging.yaml \
-		-f deploy/environments/dev/images.yaml \
-		-f deploy/environments/dev/values.yaml \
+		-f helm-values/applications/demo-app/values.yaml \
+		-f helm-values/applications/demo-app/values-staging.yaml \
+		-f helm-values/applications/demo-app/environments/dev/images.yaml \
+		-f helm-values/applications/demo-app/environments/dev/values.yaml \
 		--wait --timeout 180s
 	@echo "Port-forward: kubectl -n demo port-forward svc/demo-api 8080:80"
 
