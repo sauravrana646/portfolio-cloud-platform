@@ -1,5 +1,53 @@
 # Argo CD — generic App-of-Apps
 
+## OrbStack (Argo CD already installed)
+
+Do **not** run `make bootstrap-up` — that Helm-installs the same charts and will
+fight Argo. Point kubectl at OrbStack and apply the root app:
+
+```bash
+kubectl config use-context orbstack
+kubectl -n argocd get pods
+
+git checkout main && git pull
+
+# Repo must be reachable by Argo (public GH or configured credentials)
+kubectl apply -f argocd/root.yaml
+
+# ApplicationSet discovers charts/**/app.yaml and apps/*.yaml
+kubectl -n argocd get applicationset
+kubectl -n argocd get applications
+```
+
+Then follow **Before first sync** below (cosign Secret / Infisical, skip Teleport
+until configured). Sync waves pull Kyverno, kube-prometheus-stack, policies, and
+`demo-app-dev` automatically. `demo-app-prod` and Teleport stay manual
+(`autoSync: false`).
+
+```bash
+# Useful checks
+kubectl -n argocd get app platform-root
+kubectl -n kyverno get pods
+kubectl -n monitoring get pods
+kubectl -n demo-app-dev get deploy,svc
+kubectl get clusterpolicy
+
+# App
+kubectl -n demo-app-dev port-forward svc/demo-api 8080:80
+# Grafana (if NodePort / port-forward the monitoring services)
+kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80
+```
+
+Tear down GitOps apps (keeps OrbStack + Argo CD):
+
+```bash
+kubectl -n argocd delete application platform-root
+# ApplicationSet prune removes child apps if prune=true; otherwise:
+kubectl -n argocd delete applicationset charts
+```
+
+---
+
 ```bash
 kubectl apply -f argocd/root.yaml
 ```
