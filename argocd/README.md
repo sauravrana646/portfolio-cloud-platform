@@ -12,6 +12,9 @@ isolated: `root-dev` only discovers `charts/applications/*/apps/dev.yaml`.
 
 ## OrbStack (Argo CD already installed)
 
+**Full end-to-end (Infisical Universal Auth, roots, verify):**  
+[`docs/LOCAL_K8S_ORBSTACK.md`](../docs/LOCAL_K8S_ORBSTACK.md)
+
 ```bash
 kubectl config use-context orbstack
 kubectl -n argocd get pods

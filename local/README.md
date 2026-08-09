@@ -31,3 +31,9 @@ make bootstrap-down
 ```
 
 See [`bootstrap/README.md`](bootstrap/README.md).
+
+## OrbStack + Argo CD (recommended if Argo is already installed)
+
+Do not use `make bootstrap-up` (it fights Argo). Follow the full guide:
+
+→ [`docs/LOCAL_K8S_ORBSTACK.md`](../docs/LOCAL_K8S_ORBSTACK.md)
