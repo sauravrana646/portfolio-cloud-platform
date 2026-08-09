@@ -37,6 +37,14 @@ make bootstrap-down
 
 Or: `./scripts/demo.sh`
 
+## Local Kubernetes setup (OrbStack + Argo CD)
+
+End-to-end guide when Argo CD is already installed on OrbStack: Infisical
+**Universal Auth** machine identity, bootstrap root, env roots (`dev` / `uat` /
+`prod`), Kyverno, monitoring, and `demo-app`.
+
+→ **[`docs/LOCAL_K8S_ORBSTACK.md`](docs/LOCAL_K8S_ORBSTACK.md)**
+
 ## Division of responsibility
 
 | Concern | Repo |
@@ -75,6 +83,7 @@ flowchart TB
 | Layer | Choice |
 |-------|--------|
 | Local Compose | `local/docker-compose.yml` |
+| Local OrbStack + Argo | [`docs/LOCAL_K8S_ORBSTACK.md`](docs/LOCAL_K8S_ORBSTACK.md) |
 | Local Kind e2e | `local/bootstrap/` (`make bootstrap-up`) |
 | Bootstrap charts | Kyverno, kube-prometheus-stack, metrics-server, Infisical operator, Teleport |
 | Apps | `charts/applications/demo-app` |
