@@ -16,10 +16,16 @@ No Redis/worker — upstream app is API-only (`/`, `/healthz`).
 Helm chart `charts/demo-app` deploys the API against the current kubecontext
 (`make cluster-deploy`). Values overlays live in `deploy/environments/`.
 
-## GitOps
+## GitOps (App-of-Apps)
 
-`argocd/root.yaml` App-of-Apps → Kyverno policies, then `demo-dev` / `demo-uat` /
-`demo-prod`. Promotion = PR that bumps the digest in env `images.yaml`.
+`argocd/root.yaml` syncs `argocd/applications/`. Order via sync-waves:
+
+1. Helm: `metrics-server`, `kyverno`, Infisical `secrets-operator`
+2. InfisicalSecret CR → `platform-system/cosign-public-key`
+3. Kyverno ClusterPolicies (Kustomize)
+4. Helm: `charts/demo-app` per env (`demo-dev` / `uat` / `prod`)
+
+Promotion = PR that bumps the digest in env `images.yaml`. Not using ApplicationSets.
 
 ## Admission
 

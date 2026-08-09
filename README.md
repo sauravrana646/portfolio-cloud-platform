@@ -70,8 +70,9 @@ flowchart TB
 | Workload image | Signed `portfolio-secure-cicd` from GHCR (digest pin) |
 | Local | Docker Compose |
 | K8s | Helm chart + Argo CD App-of-Apps |
-| Policy | Kyverno (digest, non-root, cosign verify) |
-| Secrets | Infisical OIDC for cosign **public** key |
+| Platform Helm deps | Kyverno, Infisical secrets-operator, metrics-server |
+| Policy | Kyverno ClusterPolicies (digest, non-root, cosign verify) |
+| Secrets | Infisical Operator sync + CI OIDC for cosign **public** key |
 | IaC | Terraform `local` \| `eks` (no ECS) |
 | Observability | Prometheus + Grafana (Compose) |
 | CI | Helm/terraform gates + optional Infisical cosign verify |
