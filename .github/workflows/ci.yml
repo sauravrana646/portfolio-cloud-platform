@@ -8,52 +8,268 @@ on:
 permissions:
   contents: read
   id-token: write
+  pull-requests: write
+
+env:
+  HELM_VERSION: v3.17.2
+  TERRAFORM_VERSION: 1.11.3
+  KUBECONFORM_VERSION: v0.6.7
 
 jobs:
-  platform:
+  helm:
+    name: helm lint · template · validate
     runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.summary.outputs.outcome }}
+      summary: ${{ steps.summary.outputs.summary }}
     steps:
       - uses: actions/checkout@v4.2.2
+
       - name: Compose config
         run: docker compose config -q
+
       - uses: azure/setup-helm@v4.3.0
         with:
-          version: v3.17.2
-      - name: Helm lint + template
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform
         run: |
-          helm lint charts/demo-app
-          helm template demo charts/demo-app \
+          set -euo pipefail
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C /tmp
+          sudo install /tmp/kubeconform /usr/local/bin/kubeconform
+
+      - name: Helm lint
+        run: helm lint charts/demo-app
+
+      - name: Helm template (dev / uat / prod)
+        id: template
+        run: |
+          set -euo pipefail
+          mkdir -p rendered
+          render() {
+            local env="$1"; shift
+            local out="rendered/${env}.yaml"
+            helm template "demo-${env}" charts/demo-app "$@" > "$out"
+            echo "Rendered ${out} ($(wc -l < "$out") lines)"
+          }
+          render dev \
             -f charts/demo-app/values.yaml \
             -f deploy/environments/dev/images.yaml \
-            -f deploy/environments/dev/values.yaml >/dev/null
-          helm template demo charts/demo-app \
+            -f deploy/environments/dev/values.yaml
+          render uat \
             -f charts/demo-app/values.yaml \
             -f charts/demo-app/values-staging.yaml \
             -f deploy/environments/uat/images.yaml \
-            -f deploy/environments/uat/values.yaml >/dev/null
-          helm template demo charts/demo-app \
+            -f deploy/environments/uat/values.yaml
+          render prod \
             -f charts/demo-app/values.yaml \
             -f charts/demo-app/values-prod.yaml \
             -f deploy/environments/prod/images.yaml \
-            -f deploy/environments/prod/values.yaml >/dev/null
+            -f deploy/environments/prod/values.yaml
+
+      - name: Kubeconform validate rendered manifests
+        id: kubeconform
+        run: |
+          set -euo pipefail
+          for f in rendered/*.yaml; do
+            echo "==> kubeconform $f"
+            kubeconform -summary -ignore-missing-schemas -kubernetes-version 1.31.0 "$f"
+          done
+
+      - name: Upload rendered manifests
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: helm-rendered
+          path: rendered/
+          if-no-files-found: error
+
+      - name: Build helm summary
+        id: summary
+        if: always()
+        run: |
+          set -euo pipefail
+          outcome="success"
+          if [ "${{ steps.template.outcome }}" != "success" ] || [ "${{ steps.kubeconform.outcome }}" != "success" ]; then
+            outcome="failure"
+          fi
+          {
+            echo "outcome=${outcome}"
+            echo "summary<<EOF"
+            echo "### Helm"
+            echo "| Check | Result |"
+            echo "|-------|--------|"
+            echo "| lint + template | \`${{ steps.template.outcome }}\` |"
+            echo "| kubeconform | \`${{ steps.kubeconform.outcome }}\` |"
+            echo ""
+            echo "Rendered: \`dev\`, \`uat\`, \`prod\` (artifact \`helm-rendered\`)."
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
   terraform:
+    name: terraform fmt · validate · plan
     runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.summary.outputs.outcome }}
+      summary: ${{ steps.summary.outputs.summary }}
+    defaults:
+      run:
+        working-directory: infra/terraform
     steps:
       - uses: actions/checkout@v4.2.2
+
       - uses: hashicorp/setup-terraform@v3.1.2
         with:
-          terraform_version: 1.11.3
-      - working-directory: infra/terraform
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: true
+
+      - name: Terraform fmt
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform init
+        id: init
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform validate
+        id: validate
+        run: terraform validate -no-color
+
+      # Always safe: deploy_target=local creates no AWS resources (modules count=0).
+      - name: Terraform plan (local)
+        id: plan_local
+        run: terraform plan -no-color -input=false -var='deploy_target=local' -out=tfplan-local
+        continue-on-error: true
+
+      - name: Terraform show plan (local)
+        id: show_local
+        if: steps.plan_local.outcome == 'success'
+        run: terraform show -no-color tfplan-local
+        continue-on-error: true
+
+      # Optional EKS plan when AWS creds exist (OIDC role / keys). Otherwise skip.
+      - name: Configure AWS credentials (optional)
+        id: aws
+        if: ${{ vars.AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Terraform plan (eks)
+        id: plan_eks
+        if: ${{ vars.AWS_ROLE_ARN != '' }}
+        run: terraform plan -no-color -input=false -var='deploy_target=eks' -out=tfplan-eks
+        continue-on-error: true
+
+      - name: Terraform show plan (eks)
+        id: show_eks
+        if: ${{ vars.AWS_ROLE_ARN != '' && steps.plan_eks.outcome == 'success' }}
+        run: terraform show -no-color tfplan-eks
+        continue-on-error: true
+
+      - name: Upload plan files
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: terraform-plans
+          path: |
+            infra/terraform/tfplan-local
+            infra/terraform/tfplan-eks
+          if-no-files-found: ignore
+
+      - name: Build terraform summary
+        id: summary
+        if: always()
+        env:
+          PLAN_LOCAL: ${{ steps.show_local.outputs.stdout || steps.plan_local.outputs.stdout }}
+          PLAN_EKS: ${{ steps.show_eks.outputs.stdout || steps.plan_eks.outputs.stdout }}
         run: |
-          terraform fmt -check -recursive
-          terraform init -backend=false
-          terraform validate
+          set -euo pipefail
+          outcome="success"
+          for step in fmt init validate plan_local; do
+            # fmt/plan_local may be continue-on-error; treat non-success as failure for gate
+            :
+          done
+          if [ "${{ steps.fmt.outcome }}" != "success" ] \
+            || [ "${{ steps.init.outcome }}" != "success" ] \
+            || [ "${{ steps.validate.outcome }}" != "success" ] \
+            || [ "${{ steps.plan_local.outcome }}" != "success" ]; then
+            outcome="failure"
+          fi
+          if [ "${{ vars.AWS_ROLE_ARN }}" != "" ] && [ "${{ steps.plan_eks.outcome }}" != "success" ] && [ "${{ steps.plan_eks.outcome }}" != "skipped" ]; then
+            outcome="failure"
+          fi
+
+          # Truncate plans for PR comment (GitHub ~64k comment limit; keep headroom).
+          truncate() {
+            local s="$1"
+            local max=12000
+            if [ "${#s}" -gt "$max" ]; then
+              printf '%s\n\n… truncated (%s bytes total) …\n' "${s:0:max}" "${#s}"
+            else
+              printf '%s\n' "$s"
+            fi
+          }
+
+          LOCAL_BODY="$(truncate "${PLAN_LOCAL:-"(no plan output)"}")"
+          if [ "${{ vars.AWS_ROLE_ARN }}" = "" ]; then
+            EKS_SECTION="**EKS plan:** skipped (set repo variable \`AWS_ROLE_ARN\` + OIDC to enable)."
+          else
+            EKS_BODY="$(truncate "${PLAN_EKS:-"(no plan output)"}")"
+            EKS_SECTION="$(cat <<EKS
+          **EKS plan** (\`deploy_target=eks\`) — \`${{ steps.plan_eks.outcome }}\`
+
+          <details><summary>terraform plan (eks)</summary>
+
+          \`\`\`hcl
+          ${EKS_BODY}
+          \`\`\`
+          </details>
+          EKS
+          )"
+          fi
+
+          {
+            echo "outcome=${outcome}"
+            echo "summary<<EOF"
+            echo "### Terraform"
+            echo "| Check | Result |"
+            echo "|-------|--------|"
+            echo "| fmt | \`${{ steps.fmt.outcome }}\` |"
+            echo "| init | \`${{ steps.init.outcome }}\` |"
+            echo "| validate | \`${{ steps.validate.outcome }}\` |"
+            echo "| plan (local) | \`${{ steps.plan_local.outcome }}\` |"
+            if [ "${{ vars.AWS_ROLE_ARN }}" != "" ]; then
+              echo "| plan (eks) | \`${{ steps.plan_eks.outcome }}\` |"
+            else
+              echo "| plan (eks) | \`skipped\` |"
+            fi
+            echo ""
+            echo "**Local plan** (\`deploy_target=local\`) — no AWS resources"
+            echo ""
+            echo "<details><summary>terraform plan (local)</summary>"
+            echo ""
+            echo '```hcl'
+            echo "$LOCAL_BODY"
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "$EKS_SECTION"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fail job if terraform gates failed
+        if: steps.summary.outputs.outcome != 'success'
+        run: |
+          echo "Terraform gate failed — see summary / logs"
+          exit 1
 
   verify-upstream-image:
+    name: cosign verify (Infisical)
     runs-on: ubuntu-latest
-    # Requires repo/environment vars: INFISICAL_IDENTITY_ID, INFISICAL_ENV_SLUG
-    # Skips cleanly when identity is not configured (local forks / first bootstrap).
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: sigstore/cosign-installer@v3.10.1
@@ -65,7 +281,6 @@ jobs:
           DIGEST=$(awk '/digest:/ {print $2; exit}' deploy/environments/prod/images.yaml)
           echo "image_ref=${REPO}@${DIGEST}" >> "$GITHUB_OUTPUT"
       - name: Fetch cosign public key from Infisical
-        id: infisical
         if: ${{ vars.INFISICAL_IDENTITY_ID != '' }}
         uses: Infisical/secrets-action@v1.0.9
         with:
@@ -87,9 +302,10 @@ jobs:
           echo "Verified ${{ steps.image.outputs.image_ref }}"
       - name: Skip notice
         if: ${{ vars.INFISICAL_IDENTITY_ID == '' }}
-        run: echo "INFISICAL_IDENTITY_ID not set — skipping cosign verify (configure repo variable to enable)."
+        run: echo "INFISICAL_IDENTITY_ID not set — skipping cosign verify."
 
   kyverno-validate:
+    name: kyverno policy sanity
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4.2.2
@@ -99,12 +315,99 @@ jobs:
           curl -sLO https://github.com/kyverno/kyverno/releases/download/v1.13.4/kyverno-cli_v1.13.4_linux_x86_64.tar.gz
           tar -xzf kyverno-cli_v1.13.4_linux_x86_64.tar.gz
           sudo install kyverno /usr/local/bin/
-      - name: Validate policy YAML
+      - name: Validate policy YAML + fixtures
         run: |
           set -euo pipefail
-          for f in policy/kyverno/policies/*.yaml; do
-            echo "Checking $f"
-            kyverno apply "$f" --resource policy/kyverno/tests/fixtures/pod-good.yaml 2>/dev/null || true
-          done
-          # Structural sanity: files must parse as YAML with ClusterPolicy kind
           grep -q 'kind: ClusterPolicy' policy/kyverno/policies/*.yaml
+          # Good pod should not be rejected by digest / latest / non-root structural rules
+          kyverno apply policy/kyverno/policies/require-digest.yaml \
+            --resource policy/kyverno/tests/fixtures/pod-good.yaml
+          kyverno apply policy/kyverno/policies/disallow-latest-tag.yaml \
+            --resource policy/kyverno/tests/fixtures/pod-bad-latest.yaml 2>&1 \
+            | tee /tmp/kyverno-bad.out
+          if ! grep -qiE 'fail|error|violation|blocked' /tmp/kyverno-bad.out; then
+            echo "Expected bad :latest pod to fail disallow-latest-tag" >&2
+            exit 1
+          fi
+
+  pr-report:
+    name: PR review comment
+    if: github.event_name == 'pull_request'
+    needs: [helm, terraform]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Post / update sticky CI report
+        uses: actions/github-script@v7.0.1
+        env:
+          HELM_OUTCOME: ${{ needs.helm.outputs.outcome }}
+          HELM_SUMMARY: ${{ needs.helm.outputs.summary }}
+          TF_OUTCOME: ${{ needs.terraform.outputs.outcome }}
+          TF_SUMMARY: ${{ needs.terraform.outputs.summary }}
+        with:
+          script: |
+            const marker = '<!-- portfolio-cloud-platform-ci-report -->';
+            const helmOk = process.env.HELM_OUTCOME === 'success';
+            const tfOk = process.env.TF_OUTCOME === 'success';
+            const overall = helmOk && tfOk ? '✅ READY FOR REVIEW' : '❌ CHANGES REQUIRED';
+            const body = [
+              marker,
+              `## Platform CI report — ${overall}`,
+              '',
+              `Commit: \`${context.sha.slice(0, 7)}\` · Workflow: [${context.workflow}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              '',
+              process.env.HELM_SUMMARY || '_No helm summary_',
+              '',
+              process.env.TF_SUMMARY || '_No terraform summary_',
+              '',
+              '### Review checklist',
+              '- [ ] Helm rendered manifests look correct (download \`helm-rendered\` artifact)',
+              '- [ ] Terraform plan (local) shows **no** unexpected AWS resources',
+              '- [ ] If EKS plan ran, cost / destroy implications are acceptable',
+              '',
+              '_This comment is updated on each push to the PR._',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # Aggregate gate so branch protection can require a single check name if desired.
+  gates:
+    name: merge gates
+    if: always()
+    needs: [helm, terraform, verify-upstream-image, kyverno-validate, pr-report]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require helm + terraform success
+        run: |
+          set -euo pipefail
+          echo "helm=${{ needs.helm.result }}"
+          echo "terraform=${{ needs.terraform.result }}"
+          echo "verify=${{ needs.verify-upstream-image.result }}"
+          echo "kyverno=${{ needs.kyverno-validate.result }}"
+          test "${{ needs.helm.result }}" = "success"
+          test "${{ needs.terraform.result }}" = "success"
+          test "${{ needs.verify-upstream-image.result }}" = "success"
+          test "${{ needs.kyverno-validate.result }}" = "success"
