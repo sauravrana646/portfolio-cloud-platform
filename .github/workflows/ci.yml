@@ -106,6 +106,8 @@ jobs:
           helm template local-ms charts/bootstrap-layer/metrics-server \
             -f helm-values/bootstrap-layer/metrics-server/values.yaml \
             -f local/bootstrap/values/metrics-server.yaml >/dev/null
+          helm template local-policy-reporter charts/bootstrap-layer/policy-reporter \
+            -f helm-values/bootstrap-layer/policy-reporter/values.yaml >/dev/null
           helm template local-demo charts/applications/demo-app \
             -f helm-values/applications/demo-app/values.yaml \
             -f helm-values/applications/demo-app/environments/dev/values.yaml \
