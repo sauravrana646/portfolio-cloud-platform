@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-prod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
+      targetRevision: main
+      ref: values
+    - repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
+      targetRevision: main
+      path: charts/demo-app
+      helm:
+        valueFiles:
+          - values-prod.yaml
+          - $values/deploy/environments/prod/images.yaml
+          - $values/deploy/environments/prod/values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo-prod
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,9 @@
+replicaCount: 2
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+networkPolicy:
+  enabled: true
+image:
+  pullPolicy: IfNotPresent
+# prod overlays must set image.digest via deploy/environments/prod/images.yaml

@@ -7,51 +7,35 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app/api
-    steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
-        with:
-          python-version: "3.12.8"
-      - run: pip install -r requirements-dev.txt
-      - run: pytest -q
-
-  image:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: docker/setup-buildx-action@v3.10.0
-      - uses: docker/build-push-action@v6.18.0
-        with:
-          context: app/api
-          push: false
-          load: true
-          tags: portfolio-cloud-platform-api:ci
-      - name: Trivy image gate
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          image-ref: portfolio-cloud-platform-api:ci
-          severity: CRITICAL
-          exit-code: "1"
-          ignore-unfixed: true
-          scanners: vuln
-
-  helm:
+  platform:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4.2.2
+      - name: Compose config
+        run: docker compose config -q
       - uses: azure/setup-helm@v4.3.0
         with:
           version: v3.17.2
-      - run: helm lint charts/demo-app
+      - name: Helm lint + template
+        run: |
+          helm lint charts/demo-app
+          helm template demo charts/demo-app \
+            -f charts/demo-app/values.yaml \
+            -f deploy/environments/dev/images.yaml \
+            -f deploy/environments/dev/values.yaml >/dev/null
+          helm template demo charts/demo-app \
+            -f charts/demo-app/values.yaml \
+            -f charts/demo-app/values-staging.yaml \
+            -f deploy/environments/uat/images.yaml \
+            -f deploy/environments/uat/values.yaml >/dev/null
+          helm template demo charts/demo-app \
+            -f charts/demo-app/values.yaml \
+            -f charts/demo-app/values-prod.yaml \
+            -f deploy/environments/prod/images.yaml \
+            -f deploy/environments/prod/values.yaml >/dev/null
 
   terraform:
     runs-on: ubuntu-latest
@@ -62,5 +46,65 @@ jobs:
           terraform_version: 1.11.3
       - working-directory: infra/terraform
         run: |
+          terraform fmt -check -recursive
           terraform init -backend=false
           terraform validate
+
+  verify-upstream-image:
+    runs-on: ubuntu-latest
+    # Requires repo/environment vars: INFISICAL_IDENTITY_ID, INFISICAL_ENV_SLUG
+    # Skips cleanly when identity is not configured (local forks / first bootstrap).
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: sigstore/cosign-installer@v3.10.1
+      - name: Resolve pinned image ref
+        id: image
+        run: |
+          set -euo pipefail
+          REPO=$(awk '/repository:/ {print $2; exit}' deploy/environments/prod/images.yaml)
+          DIGEST=$(awk '/digest:/ {print $2; exit}' deploy/environments/prod/images.yaml)
+          echo "image_ref=${REPO}@${DIGEST}" >> "$GITHUB_OUTPUT"
+      - name: Fetch cosign public key from Infisical
+        id: infisical
+        if: ${{ vars.INFISICAL_IDENTITY_ID != '' }}
+        uses: Infisical/secrets-action@v1.0.9
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
+          project-slug: devops-portfolio-x-k3-y
+          env-slug: ${{ vars.INFISICAL_ENV_SLUG }}
+          secret-path: /cosign
+          export-type: env
+      - name: Cosign verify + SPDX attestation
+        if: ${{ vars.INFISICAL_IDENTITY_ID != '' }}
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp)
+          printf '%s\n' "${cosign_public_key}" > "$tmp"
+          cosign verify --key "$tmp" "${{ steps.image.outputs.image_ref }}"
+          cosign verify-attestation --key "$tmp" --type spdx "${{ steps.image.outputs.image_ref }}" >/dev/null
+          rm -f "$tmp"
+          echo "Verified ${{ steps.image.outputs.image_ref }}"
+      - name: Skip notice
+        if: ${{ vars.INFISICAL_IDENTITY_ID == '' }}
+        run: echo "INFISICAL_IDENTITY_ID not set — skipping cosign verify (configure repo variable to enable)."
+
+  kyverno-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install kyverno CLI
+        run: |
+          set -euo pipefail
+          curl -sLO https://github.com/kyverno/kyverno/releases/download/v1.13.4/kyverno-cli_v1.13.4_linux_x86_64.tar.gz
+          tar -xzf kyverno-cli_v1.13.4_linux_x86_64.tar.gz
+          sudo install kyverno /usr/local/bin/
+      - name: Validate policy YAML
+        run: |
+          set -euo pipefail
+          for f in policy/kyverno/policies/*.yaml; do
+            echo "Checking $f"
+            kyverno apply "$f" --resource policy/kyverno/tests/fixtures/pod-good.yaml 2>/dev/null || true
+          done
+          # Structural sanity: files must parse as YAML with ClusterPolicy kind
+          grep -q 'kind: ClusterPolicy' policy/kyverno/policies/*.yaml

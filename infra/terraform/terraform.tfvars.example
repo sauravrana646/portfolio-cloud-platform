@@ -1,0 +1,8 @@
+deploy_target         = "local"
+aws_region            = "us-east-1"
+project               = "portfolio-cloud-platform"
+eks_public_nodes      = true
+eks_node_instance_type = "t3.medium"
+eks_desired_size      = 1
+eks_max_size          = 2
+# Never apply eks without sandbox approval. Destroy the same day when possible.

@@ -2,124 +2,96 @@
 
 [![CI](https://github.com/sauravrana646/portfolio-cloud-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravrana646/portfolio-cloud-platform/actions/workflows/ci.yml)
 
-> Production-ready app platform patterns on AWS + Kubernetes — local-first with Compose/Helm (OrbStack or any kubecontext), cloud-optional via Terraform (`ecs` cheap path; `eks` off by default).
+> Platform deploy pack: run a **signed** app image from [`portfolio-secure-cicd`](https://github.com/sauravrana646/portfolio-secure-cicd) on Compose → Helm → Argo CD → optional EKS, with Kyverno admission and Infisical-backed cosign verify.
 
 ![Demo: Compose stack and local /healthz](docs/images/demo.jpg)
 
 ## Demo in 15 minutes
 
 ```bash
-# Compose (no cluster required)
-docker compose up --build -d
+# Pull digest-pinned signed image (no local app build)
+docker compose up -d
 curl -s http://127.0.0.1:8080/healthz   # {"status":"ok"}
-curl -s http://127.0.0.1:8080/work
 
-# OrbStack / existing cluster (uses current kubectl context)
+# Optional: verify cosign sig + SPDX attestation (Infisical public key)
+# make verify-image
+
+# OrbStack / existing cluster
 make cluster-deploy
 kubectl -n demo port-forward svc/demo-api 8080:80
-# curl http://127.0.0.1:8080/healthz
 make cluster-down
 ```
 
-## Problem this solves for a startup
+Or: `./scripts/demo.sh`
 
-You need a real deploy path (API + worker + observability + CI) without standing up an expensive EKS cluster on day one.
+## Division of responsibility
+
+| Concern | Repo |
+|---------|------|
+| Build, Trivy, promotion, cosign **sign**, SBOM, GHCR release | [portfolio-secure-cicd](https://github.com/sauravrana646/portfolio-secure-cicd) |
+| Digest pin, Infisical **verify**, Helm/Argo/EKS, Kyverno | **This repo** |
+
+Pinned release (example): `ghcr.io/sauravrana646/portfolio-secure-cicd@sha256:a407de4528243789ae9784099afbca03e066dcb9092f05f9ef3060b23145f1e3` (`v0.1.0`).
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-  subgraph local [Local default]
-    Compose[Docker Compose]
-    API[API /healthz /work]
-    Worker[Worker]
-    Redis[Redis]
-    Prom[Prometheus]
-    Graf[Grafana]
-    Compose --> API
-    Compose --> Worker
-    API --> Redis
-    Worker --> Redis
-    Compose --> Prom
-    Compose --> Graf
+  subgraph upstream [portfolio-secure-cicd]
+    Rel[Signed GHCR release]
   end
-  subgraph k8s [kind or k3d]
+  subgraph local [Local $0]
+    Compose[Compose]
     Helm[Helm demo-app]
-    Argo[Argo CD optional]
-    Helm --> API
-    Argo --> Helm
   end
-  subgraph cloud [Opt-in AWS]
-    TF[Terraform deploy_target]
-    ECS[ECS Fargate path]
-    EKS[EKS off by default]
-    TF --> ECS
-    TF --> EKS
+  subgraph guard [Guardrails]
+    Inf[Infisical cosign-public-key]
+    Kyverno[Kyverno verify]
+    Inf --> Kyverno
   end
+  subgraph gitops [GitOps]
+    Argo[Argo CD envs]
+  end
+  subgraph cloud [EKS opt-in]
+    TF[Terraform deploy_target=eks]
+  end
+  Rel --> Compose
+  Rel --> Helm
+  Rel --> Argo
+  Inf --> Compose
+  Kyverno --> Argo
+  TF --> Argo
 ```
 
 ## Stack
 
 | Layer | Choice |
 |-------|--------|
-| App | Python Flask API + Redis worker |
+| Workload image | Signed `portfolio-secure-cicd` from GHCR (digest pin) |
 | Local | Docker Compose |
-| K8s | Helm chart + optional Argo CD |
-| IaC | Terraform ≥1.5 (`local` / `ecs` / `eks`) |
-| Observability | Prometheus + Grafana (compose) |
-| CI | GitHub Actions + Trivy |
+| K8s | Helm chart + Argo CD App-of-Apps |
+| Policy | Kyverno (digest, non-root, cosign verify) |
+| Secrets | Infisical OIDC for cosign **public** key |
+| IaC | Terraform `local` \| `eks` (no ECS) |
+| Observability | Prometheus + Grafana (Compose) |
+| CI | Helm/terraform gates + optional Infisical cosign verify |
 
-## Prerequisites
+## Cost
 
-- Docker / Docker Compose
-- Optional: Helm, kind/k3d, Terraform 1.5+
+| Path | Cost |
+|------|------|
+| Compose / local Helm | ~$0 |
+| Infisical Free (verify identity) | $0 within free tier |
+| EKS sandbox | Control plane ~$70–75/mo + node; **no NAT** by default; destroy when done |
 
-## Quickstart (≈15 minutes)
-
-```bash
-docker compose up --build -d
-curl -s http://127.0.0.1:8080/healthz
-curl -s http://127.0.0.1:8080/work
-# Grafana http://127.0.0.1:3000 (admin / admin)
-# Prometheus http://127.0.0.1:9090
-
-# Helm lint
-helm lint charts/demo-app
-
-# Terraform validate (no cloud resources with default)
-cd infra/terraform && terraform init -backend=false && terraform validate
-```
-
-### kind path
-
-```bash
-make kind-load   # requires kind cluster + helm
-```
-
-## What was automated
-
-- Compose stack with healthchecks
-- CI: unit tests, image + Trivy, helm lint, terraform validate
-- Deploy target switch for future cloud
+See `docs/PLATFORM_IMPROVEMENT_PLAN.md` and `infra/terraform/README.md`.
 
 ## Security notes
 
-- Non-root containers
-- Trivy CRITICAL fails CI
-- No secrets in repo; OIDC deploy stub commented in workflow
+- Non-root pod security contexts in the chart
+- Kyverno policies under `policy/kyverno/`
+- Cosign verify uses Infisical (`devops-portfolio-x-k3-y` / `/cosign` / `cosign-public-key`) — never private keys here
 - **Do not `terraform apply` without sandbox approval**
-
-## Cost estimate / teardown
-
-Local demo cost: ~$0 (your machine).
-
-```bash
-docker compose down -v
-# If you ever applied cloud resources:
-# cd infra/terraform && terraform destroy
-```
-
-EKS is intentionally off by default — prefer kind + optional ECS.
 
 ## Hire me for…
 

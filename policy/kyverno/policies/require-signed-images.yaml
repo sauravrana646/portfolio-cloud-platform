@@ -1,0 +1,38 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-signed-upstream-image
+  annotations:
+    policies.kyverno.io/title: Require cosign-signed portfolio-secure-cicd image
+    policies.kyverno.io/category: Supply Chain
+    policies.kyverno.io/description: >-
+      Verify cosign signatures for ghcr.io/sauravrana646/portfolio-secure-cicd
+      using the Infisical-synced Secret platform-system/cosign-public-key
+      (key material: cosign.pub / cosign-public-key).
+spec:
+  validationFailureAction: Enforce
+  background: false
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: verify-cosign-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - demo
+                - demo-uat
+                - demo-prod
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/sauravrana646/portfolio-secure-cicd*"
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    secret:
+                      name: cosign-public-key
+                      namespace: platform-system
+          mutateDigest: false
+          required: true

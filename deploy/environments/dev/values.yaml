@@ -1,0 +1,6 @@
+replicaCount: 1
+podDisruptionBudget:
+  enabled: false
+networkPolicy:
+  enabled: false
+kyvernoEnforce: false
