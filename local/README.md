@@ -34,6 +34,9 @@ See [`bootstrap/README.md`](bootstrap/README.md).
 
 ## OrbStack + Argo CD (recommended if Argo is already installed)
 
-Do not use `make bootstrap-up` (it fights Argo). Follow the full guide:
+Do not use `make bootstrap-up` (it fights Argo). Follow the full guide
+(Universal Auth, bootstrap + Policy Reporter, `root-dev`, Kyverno verify):
 
 → [`docs/LOCAL_K8S_ORBSTACK.md`](../docs/LOCAL_K8S_ORBSTACK.md)
+
+Image pin must be multi-arch (`v0.2.0+`) for Apple Silicon.

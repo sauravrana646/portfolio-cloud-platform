@@ -20,7 +20,7 @@ kubectl config use-context orbstack
 kubectl -n argocd get pods
 git checkout main && git pull
 
-# 1) Platform once per cluster (Kyverno, monitoring, policies, …)
+# 1) Platform once per cluster (Kyverno, monitoring, policies, Policy Reporter, …)
 kubectl apply -f argocd/root-bootstrap.yaml
 
 # 2) Only the env you want on this cluster
@@ -37,12 +37,18 @@ kubectl -n argocd get applications -l platform.env=dev
 
 kubectl -n kyverno get pods
 kubectl -n monitoring get pods
+kubectl -n policy-reporter get pods
 kubectl -n demo-app-dev get deploy,svc
 kubectl get clusterpolicy
 
-kubectl -n demo-app-dev port-forward svc/demo-api 8080:80
+kubectl -n demo-app-dev port-forward svc/demo-app-api 8080:80
 kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80
+kubectl -n policy-reporter port-forward svc/policy-reporter-ui 8082:8080
 ```
+
+ApplicationSet notes: discovery paths are **explicit** (no globs). `templatePatch`
+must not emit an empty `metadata:` block when `finalizer: "false"` — that wiped
+Application names and produced `duplicate name:`.
 
 Tear down one env (keeps Argo + other roots):
 

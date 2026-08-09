@@ -63,10 +63,13 @@ kubectl -n argocd delete application platform-root --ignore-not-found
 kubectl -n argocd delete applicationset charts --ignore-not-found
 ```
 
-If `charts-bootstrap` shows **“contains applications with duplicate name”**:
+If `charts-bootstrap` shows **“contains applications with duplicate name”**
+(especially `duplicate name:` with nothing after the colon):
 
-1. Ensure you are on a `main` commit that uses **explicit** `files:` paths (no
-   `charts/bootstrap-layer/*/app.yaml` globs — greedy globs cause this).
+1. Ensure you are on current `main`:
+   - **Explicit** `files:` paths (no `*/app.yaml` globs — greedy globs duplicate apps).
+   - AppSet `templatePatch` only emits `metadata` when setting finalizers
+     (empty `metadata:` used to wipe `metadata.name` → Applications named `""`).
 2. Clean leftovers, then hard-refresh:
 
 ```bash
@@ -247,13 +250,35 @@ kubectl -n demo-app-dev get deploy,svc
 kubectl get clusterpolicy
 ```
 
+Pinned image must be **multi-arch** (`v0.2.0+`). Older amd64-only digests fail on
+Apple Silicon OrbStack with `no matching manifest for linux/arm64`.
+
+### Verify Kyverno on `demo-app-dev`
+
+Digest + cosign ClusterPolicies include `demo-app-dev`. After policies are Ready:
+
+```bash
+# Deny (expect admission webhook errors)
+kubectl -n demo-app-dev run bad-tag --restart=Never \
+  --image=ghcr.io/sauravrana646/portfolio-secure-cicd:v0.2.0
+kubectl -n demo-app-dev run bad-sig --restart=Never \
+  --image=ghcr.io/sauravrana646/portfolio-secure-cicd@sha256:0000000000000000000000000000000000000000000000000000000000000001
+
+# Allow path — annotation proves verifyImages
+kubectl -n demo-app-dev rollout restart deploy/demo-app-api
+kubectl -n demo-app-dev get pod -l app=demo-app-api \
+  -o jsonpath='{.items[0].metadata.annotations.kyverno\.io/verify-images}{"\n"}'
+```
+
+More detail: [`RUNBOOK.md`](RUNBOOK.md), [`policy/kyverno/README.md`](../policy/kyverno/README.md).
+
 ---
 
 ## 8. Access the stack
 
 ```bash
-# App
-kubectl -n demo-app-dev port-forward svc/demo-api 8080:80
+# App (service name is demo-app-api)
+kubectl -n demo-app-dev port-forward svc/demo-app-api 8080:80
 curl -s http://127.0.0.1:8080/healthz
 
 # Grafana (password from helm-values/bootstrap-layer/kube-prometheus-stack — default changeme)

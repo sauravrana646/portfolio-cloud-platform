@@ -71,6 +71,10 @@ make bootstrap-down
 
 Skipped by default (set `INSTALL_INFISICAL=1` to enable operator): Infisical operator, Teleport.
 
+Policy Reporter UI is part of the **Argo** bootstrap path (wave 4), not this
+Helm `bootstrap-up` script. On OrbStack+Argo see
+[`docs/LOCAL_K8S_ORBSTACK.md`](../../docs/LOCAL_K8S_ORBSTACK.md).
+
 ## Values
 
 Same nesting as GitOps: base under `helm-values/…`, then `local/bootstrap/values/…` overlays for Kind (lighter resources, NodePorts).
@@ -81,7 +85,7 @@ Same nesting as GitOps: base under `helm-values/…`, then `local/bootstrap/valu
 |----|-----|
 | Grafana | http://127.0.0.1:30030 (admin / admin) |
 | Prometheus | http://127.0.0.1:30090 |
-| demo-app | `kubectl -n demo-app-dev port-forward svc/demo-api 8080:80` |
+| demo-app | `kubectl -n demo-app-dev port-forward svc/demo-app-api 8080:80` |
 
 ## Relation to Argo
 

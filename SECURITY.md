@@ -10,12 +10,15 @@ Email **sauravrana646@gmail.com** with repo name, commit SHA, and reproduction s
 
 ## Trust boundary
 
-- **Application images** are built and cosign-signed in
+- **Application images** are built and cosign-signed (multi-arch) in
   [portfolio-secure-cicd](https://github.com/sauravrana646/portfolio-secure-cicd).
 - **This repo** pins digests and **verifies** signatures using
   Infisical secret `cosign-public-key` (`devops-portfolio-x-k3-y`, path `/cosign`)
-  via OIDC. Cosign **private** keys never live here.
-- Kyverno admission policies enforce digest / signature expectations on cluster paths.
+  via OIDC / Universal Auth (OrbStack) or Kubernetes Auth (EKS). Cosign **private**
+  keys never live here.
+- Kyverno admission policies enforce digest / signature expectations on
+  `demo-app-{dev,uat,prod}` (SBOM attestation Audit on uat/prod). Policy Reporter
+  provides a UI over PolicyReports.
 - Default path is local Compose or your kubecontext. Terraform `eks` is opt-in.
 - Prefer GitHub OIDC → AWS for any Terraform plan/apply. No long-lived AWS keys in git.
 - Human cluster JIT uses **Teleport** (`docs/JIT_TELEPORT.md`). AWS Identity Center / SSM are not the access path.
