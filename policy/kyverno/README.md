@@ -7,7 +7,11 @@ Infisical (`/cosign` → `cosign-public-key`) into Secret
 
 GitOps path: `charts/bootstrap-layer/kyverno-policies` (Kustomize wrapper)
 discovered by the charts ApplicationSet. Wave order: Kyverno Helm → Infisical
-operator → InfisicalSecret → these policies → workload apps. See `argocd/README.md`.
+operator → InfisicalSecret → these policies → Policy Reporter UI → workload apps.
+See `argocd/README.md`.
+
+Policy results UI: Argo app `bootstrap-policy-reporter` →
+`kubectl -n policy-reporter port-forward svc/policy-reporter-ui 8082:8080`.
 
 | Policy | Mode (suggested) |
 |--------|------------------|
