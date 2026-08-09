@@ -63,6 +63,25 @@ kubectl -n argocd delete application platform-root --ignore-not-found
 kubectl -n argocd delete applicationset charts --ignore-not-found
 ```
 
+If `charts-bootstrap` shows **“contains applications with duplicate name”**, stale
+apps from the old ApplicationSet are often still around — clean them, then refresh:
+
+```bash
+kubectl -n argocd get applicationset
+kubectl -n argocd get applications
+
+# Remove leftovers from the old monolithic generator (names may match bootstrap-*)
+kubectl -n argocd delete applicationset charts --ignore-not-found
+kubectl -n argocd delete application platform-root --ignore-not-found
+
+# Optional: delete orphan bootstrap apps so charts-bootstrap can recreate them
+kubectl -n argocd delete application -l app.kubernetes.io/managed-by=charts-applicationset --ignore-not-found
+
+# Hard-refresh the new ApplicationSet
+kubectl -n argocd annotate applicationset charts-bootstrap \
+  argocd.argoproj.io/application-set-refresh=true --overwrite
+```
+
 ---
 
 ## 3. Infisical — secret + Universal Auth machine identity
