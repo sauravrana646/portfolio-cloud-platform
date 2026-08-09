@@ -428,12 +428,20 @@ jobs:
           set -euo pipefail
           pip install -q pyyaml
           # Application CRDs are not in upstream k8s schemas — structural checks only.
-          for f in argocd/root.yaml argocd/appsets/*.yaml; do
+          for f in argocd/root-*.yaml argocd/appsets/*/applicationset.yaml; do
             echo "==> $f"
             python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" "$f"
           done
-          grep -q 'kind: Application' argocd/root.yaml
-          grep -q 'kind: ApplicationSet' argocd/appsets/charts.yaml
+          grep -q 'kind: Application' argocd/root-dev.yaml
+          grep -q 'kind: ApplicationSet' argocd/appsets/dev/applicationset.yaml
+          test -f argocd/root-bootstrap.yaml
+          test -f argocd/root-uat.yaml
+          test -f argocd/root-prod.yaml
+          # Generators must stay env-scoped (dev root must not glob all envs)
+          grep -q 'apps/dev.yaml' argocd/appsets/dev/applicationset.yaml
+          grep -q 'apps/uat.yaml' argocd/appsets/uat/applicationset.yaml
+          grep -q 'apps/prod.yaml' argocd/appsets/prod/applicationset.yaml
+          ! grep -q 'apps/\*\.yaml' argocd/appsets/dev/applicationset.yaml
           # Discovery contract: every chart app.yaml / apps/*.yaml is valid + paths exist
           python3 scripts/validate-chart-apps.py
           python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" \

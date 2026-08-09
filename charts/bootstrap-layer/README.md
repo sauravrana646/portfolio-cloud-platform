@@ -5,8 +5,8 @@ Prerequisite platform components. Each subfolder is either:
 - a **thin Helm wrapper** (`Chart.yaml` + upstream `dependencies`), or
 - a **directory/Kustomize** bundle (`kustomization.yaml`)
 
-Discovery: put `app.yaml` in the chart folder. The ApplicationSet in
-`argocd/appsets/charts.yaml` creates `bootstrap-<chart>` automatically.
+Discovery: put `app.yaml` in the chart folder. Apply `argocd/root-bootstrap.yaml`
+(ApplicationSet `charts-bootstrap`) to create `bootstrap-<chart>` automatically.
 
 | Chart | Type | Values |
 |-------|------|--------|

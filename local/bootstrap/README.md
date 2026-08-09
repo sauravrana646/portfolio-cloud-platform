@@ -85,4 +85,12 @@ Same nesting as GitOps: base under `helm-values/…`, then `local/bootstrap/valu
 
 ## Relation to Argo
 
-This script installs the **same charts and values tree** Argo would sync. On a durable cluster prefer `kubectl apply -f argocd/root.yaml` instead of `bootstrap-up`.
+This script installs the **same charts and values tree** Argo would sync. On
+OrbStack with Argo already installed prefer:
+
+```bash
+kubectl apply -f argocd/root-bootstrap.yaml
+kubectl apply -f argocd/root-dev.yaml    # or root-uat / root-prod
+```
+
+instead of `bootstrap-up`.

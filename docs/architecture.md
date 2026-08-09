@@ -24,19 +24,16 @@ Kind config: `local/bootstrap/kind.yaml`. Overlays: `local/bootstrap/values/`.
 | `charts/applications/` | Workloads (`demo-app`) |
 | `helm-values/` | Values only — same folder shape as `charts/` |
 
-## GitOps (App-of-Apps)
+## GitOps (per-env roots)
 
-`argocd/root.yaml` → `argocd/appsets/charts.yaml` (ApplicationSet).
-Discovery files under `charts/**/app.yaml` and `charts/**/apps/*.yaml` create
-Applications automatically (see `argocd/README.md`).
+| Apply | Deploys |
+|-------|---------|
+| `argocd/root-bootstrap.yaml` | Platform charts (`charts/bootstrap-layer/*/app.yaml`) |
+| `argocd/root-dev.yaml` | Only `charts/applications/*/apps/dev.yaml` |
+| `argocd/root-uat.yaml` | Only `…/apps/uat.yaml` |
+| `argocd/root-prod.yaml` | Only `…/apps/prod.yaml` |
 
-Sync-waves (from those files):
-
-1. Bootstrap Helm: metrics-server, Kyverno, kube-prometheus-stack
-2. Infisical operator → InfisicalSecret (cosign public key)
-3. Teleport kube-agent (JIT)
-4. Kyverno ClusterPolicies (`charts/bootstrap-layer/kyverno-policies`)
-5. `demo-app-{dev,uat,prod}`
+Env choice = **which root you apply**, not a single toggle. See `argocd/README.md`.
 
 Promotion = PR that bumps digests under `helm-values/applications/demo-app/environments/`.
 

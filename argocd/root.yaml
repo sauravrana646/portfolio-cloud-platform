@@ -1,22 +1,6 @@
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: platform-root
-  namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
-    targetRevision: main
-    path: argocd/appsets
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: argocd
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
+# Deprecated monolithic root (deployed all envs).
+# Use instead:
+#   kubectl apply -f argocd/root-bootstrap.yaml   # Kyverno, monitoring, …
+#   kubectl apply -f argocd/root-dev.yaml         # workloads with apps/dev.yaml only
+#   kubectl apply -f argocd/root-uat.yaml
+#   kubectl apply -f argocd/root-prod.yaml
