@@ -91,6 +91,27 @@ jobs:
       - name: Helm lint
         run: helm lint charts/applications/demo-app
 
+      - name: Helm dependency update (bootstrap wrappers)
+        run: make helm-deps
+
+      - name: Helm template local bootstrap overlays
+        run: |
+          set -euo pipefail
+          helm template local-kyverno charts/bootstrap-layer/kyverno \
+            -f helm-values/bootstrap-layer/kyverno/values.yaml \
+            -f local/bootstrap/values/kyverno.yaml >/dev/null
+          helm template local-prom charts/bootstrap-layer/kube-prometheus-stack \
+            -f helm-values/bootstrap-layer/kube-prometheus-stack/values.yaml \
+            -f local/bootstrap/values/kube-prometheus-stack.yaml >/dev/null
+          helm template local-ms charts/bootstrap-layer/metrics-server \
+            -f helm-values/bootstrap-layer/metrics-server/values.yaml \
+            -f local/bootstrap/values/metrics-server.yaml >/dev/null
+          helm template local-demo charts/applications/demo-app \
+            -f helm-values/applications/demo-app/values.yaml \
+            -f helm-values/applications/demo-app/environments/dev/values.yaml \
+            -f helm-values/applications/demo-app/environments/dev/images.yaml \
+            -f local/bootstrap/values/demo-app.yaml >/dev/null
+
       - name: Helm template (dev / uat / prod)
         id: template
         run: |
@@ -434,12 +455,6 @@ jobs:
           test -f local/bootstrap/values/kyverno.yaml
           test -f local/bootstrap/values/kube-prometheus-stack.yaml
           test -f local/bootstrap/manifests/namespaces.yaml
-          helm template local-kyverno charts/bootstrap-layer/kyverno \
-            -f helm-values/bootstrap-layer/kyverno/values.yaml \
-            -f local/bootstrap/values/kyverno.yaml >/dev/null
-          helm template local-prom charts/bootstrap-layer/kube-prometheus-stack \
-            -f helm-values/bootstrap-layer/kube-prometheus-stack/values.yaml \
-            -f local/bootstrap/values/kube-prometheus-stack.yaml >/dev/null
 
 
   pr-report:
