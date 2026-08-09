@@ -192,7 +192,13 @@ jobs:
 
       - name: Terraform plan (local)
         id: plan_local
-        run: terraform plan -no-color -input=false -var='deploy_target=local' -out=tfplan-local
+        env:
+          # Provider is configured even when no modules are enabled; block IMDS probing in CI.
+          AWS_EC2_METADATA_DISABLED: "true"
+          AWS_ACCESS_KEY_ID: "local-ci-placeholder"
+          AWS_SECRET_ACCESS_KEY: "local-ci-placeholder"
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+        run: terraform plan -no-color -input=false -refresh=false -var='deploy_target=local' -out=tfplan-local
         continue-on-error: true
 
       - name: Terraform show plan (local)
@@ -372,13 +378,19 @@ jobs:
           grep -q 'kind: ClusterPolicy' policy/kyverno/policies/*.yaml
           kyverno apply policy/kyverno/policies/require-digest.yaml \
             --resource policy/kyverno/tests/fixtures/pod-good.yaml
+          # Expected deny: kyverno exits non-zero; capture output then assert.
+          set +e
           kyverno apply policy/kyverno/policies/disallow-latest-tag.yaml \
-            --resource policy/kyverno/tests/fixtures/pod-bad-latest.yaml 2>&1 \
-            | tee /tmp/kyverno-bad.out
-          if ! grep -qiE 'fail|error|violation|blocked' /tmp/kyverno-bad.out; then
-            echo "Expected bad :latest pod to fail disallow-latest-tag" >&2
+            --resource policy/kyverno/tests/fixtures/pod-bad-latest.yaml \
+            > /tmp/kyverno-bad.out 2>&1
+          rc=$?
+          set -e
+          cat /tmp/kyverno-bad.out
+          if ! grep -qiE 'fail: 1|validation error|not allowed' /tmp/kyverno-bad.out; then
+            echo "Expected bad :latest pod to fail disallow-latest-tag (kyverno rc=${rc})" >&2
             exit 1
           fi
+          echo "Expected deny confirmed for :latest image"
 
   argocd-validate:
     name: argocd / platform manifests

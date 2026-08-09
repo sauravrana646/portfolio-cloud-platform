@@ -14,4 +14,10 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+
+  # Allow `terraform plan -var='deploy_target=local'` in CI without AWS creds.
+  # Real EKS plans still need credentials for API calls when modules are enabled.
+  skip_credentials_validation = true
+  skip_requesting_account_id  = true
+  skip_metadata_api_check     = true
 }
