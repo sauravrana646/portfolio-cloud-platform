@@ -38,12 +38,13 @@ verify-image:
 	echo "Verifying $${IMAGE_REF}"; \
 	if [ -z "$${cosign_public_key:-}" ] && [ -z "$${COSIGN_PUBLIC_KEY:-}" ]; then \
 	  if command -v infisical >/dev/null 2>&1; then \
-	    eval "$$(infisical export --env=$(INFISICAL_ENV_SLUG) --path=$(INFISICAL_SECRET_PATH) --projectId=$(INFISICAL_PROJECT_SLUG) --format=dotenv 2>/dev/null | sed 's/^/export /' || true)"; \
+	    # Infisical secret name is cosign-public-key under /cosign; dotenv may use underscores. \
+	    eval "$$(infisical export --env=$(INFISICAL_ENV_SLUG) --path=$(INFISICAL_SECRET_PATH) --projectId=$(INFISICAL_PROJECT_SLUG) --format=dotenv 2>/dev/null | sed 's/^cosign-public-key=/cosign_public_key=/; s/^/export /' || true)"; \
 	  fi; \
 	fi; \
 	KEY="$${cosign_public_key:-$${COSIGN_PUBLIC_KEY:-}}"; \
 	if [ -z "$$KEY" ]; then \
-	  echo "cosign-public-key not set. Run with Infisical CLI/OIDC or export cosign_public_key / COSIGN_PUBLIC_KEY."; \
+	  echo "Infisical /cosign secret cosign-public-key not set. Export cosign_public_key or configure Infisical CLI."; \
 	  exit 1; \
 	fi; \
 	tmp=$$(mktemp); \
