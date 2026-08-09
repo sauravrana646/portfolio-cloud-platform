@@ -13,20 +13,22 @@ and cloud spend fear blocking EKS experiments.
 
 ## Approach
 
-1. **Separate supply chain from runtime** — signed images come from
+1. **Separate supply chain from runtime** — multi-arch signed images come from
    `portfolio-secure-cicd`; this pack only pins digests and verifies with
    Infisical-backed cosign public keys.
-2. Local-first: Compose + Prometheus/Grafana for a 15-minute demo.
-3. Helm + Argo CD env overlays for GitOps promotion.
-4. Kyverno policies (digest, non-root, signature / SBOM attestation).
+2. Local-first: Compose + Prometheus/Grafana for a 15-minute demo; OrbStack +
+   Argo for the full GitOps path.
+3. Per-env Argo roots + ApplicationSets for GitOps promotion (digest bump PRs).
+4. Kyverno policies (digest, non-root, signature / SBOM attestation) + Policy
+   Reporter UI.
 5. Terraform `deploy_target=eks` (cost-gated, no NAT by default); ECS removed.
 6. **Teleport** for JIT kubectl (`tsh`) — not AWS Identity Center / SSM.
 7. Platform CI: path-filtered helm/terraform gates + optional Infisical cosign verify.
 
 ## Stack
 
-Docker Compose, Helm, Argo CD, Kyverno, Infisical (verify), Terraform AWS EKS,
-GitHub Actions, Prometheus, Grafana, GHCR (consume).
+Docker Compose, Helm, Argo CD, Kyverno, Policy Reporter, Infisical (verify),
+Terraform AWS EKS, GitHub Actions, Prometheus, Grafana, GHCR (consume).
 
 ## Results (from real experience / analogous)
 

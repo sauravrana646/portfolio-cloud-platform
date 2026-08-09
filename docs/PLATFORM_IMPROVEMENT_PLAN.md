@@ -22,7 +22,7 @@ Scope: **local-first + EKS**. **ECS is out of scope** (remove from Terraform and
 | Area | Today | Gap |
 |------|-------|-----|
 | Workload | Local `app/api` + `app/worker` + Redis (`/work`, metrics) | secure-cicd image is a **single** Flask API (`/`, `/healthz`) — no Redis/worker. Stack here should align. |
-| Images | Built in-repo; CI Trivy on local Dockerfile | Should **pull** `ghcr.io/sauravrana646/portfolio-secure-cicd` by **digest** from a release (e.g. `v0.1.0`), not rebuild the app |
+| Images | Built in-repo; CI Trivy on local Dockerfile | Should **pull** `ghcr.io/sauravrana646/portfolio-secure-cicd` by **digest** from a multi-arch release (e.g. `v0.2.0`), not rebuild the app |
 | Helm | API-only chart, local image tags | Digest pin + imagePullSecrets/GHCR public pull; drop worker/Redis templates |
 | Policy | None in-cluster | No Kyverno / signature / SBOM / attestation verify at admit time |
 | Access | kubeconfig / AWS keys assumed | Use **Teleport** kube-agent for JIT kubectl (AWS Identity Center/SSM JIT explicitly out of scope) |
@@ -30,7 +30,7 @@ Scope: **local-first + EKS**. **ECS is out of scope** (remove from Terraform and
 | GitOps | One Argo app on `HEAD` | Per-env overlays; prod pins digest + revision |
 | Platform CI | pytest + build local image + helm lint + tf validate | Shift to: chart/IaC/policy gates + **cosign verify** of upstream digest; retire in-repo app build as primary path |
 
-Upstream artifact (today): public GHCR package [`portfolio-secure-cicd`](https://github.com/users/sauravrana646/packages/container/package/portfolio-secure-cicd), release tag `v0.1.0`, signed by digest with cosign + SPDX SBOM attestation + SLSA provenance (see that repo’s release workflow).
+Upstream artifact (today): public GHCR package [`portfolio-secure-cicd`](https://github.com/users/sauravrana646/packages/container/package/portfolio-secure-cicd), release tag `v0.2.0` (multi-arch `linux/amd64` + `linux/arm64`), signed by digest with cosign + SPDX SBOM attestation + SLSA provenance (see that repo’s release workflow).
 
 ---
 
@@ -97,7 +97,7 @@ flowchart TB
 ## Step 0 — Scope decisions
 
 1. **Workload alignment:** retire Redis + worker as required runtime pieces. Prefer removing `app/worker`, Redis from Compose/Helm, and `/work`-centric docs — replace with upstream API (`/`, `/healthz`). Optional: keep a thin local stub only for offline demos when GHCR is unreachable; mark it non-production.
-2. **Image source of truth:** `image.repository: ghcr.io/sauravrana646/portfolio-secure-cicd`, `image.digest: sha256:…` from a published release. Tags like `:v0.1.0` may be documented for humans; **deploy by digest**.
+2. **Image source of truth:** `image.repository: ghcr.io/sauravrana646/portfolio-secure-cicd`, `image.digest: sha256:…` from a published multi-arch release. Tags like `:v0.2.0` may be documented for humans; **deploy by digest**.
 3. **Remove ECS** from `deploy_target` (`local` \| `eks` only).
 4. **No cosign private keys in this repo.** Verification uses **Infisical** as the sole source of `cosign-public-key` (OIDC machine identity). Private key + password remain only in the secure-cicd release path.
 5. EKS apply stays **manual + sandbox approval**.
@@ -138,10 +138,10 @@ flowchart TB
 
 **Makefile**
 
-- `cluster-deploy` uses digest from `deploy/environments/dev/images.yaml` (or values).
+- Deploy path uses digest from `helm-values/applications/demo-app/environments/dev/images.yaml` (or values).
 - `verify-image` target: fetch `cosign-public-key` from **Infisical** (CLI or documented env), then `cosign verify` + `cosign verify-attestation` on the pinned digest.
 
-**GitOps pin workflow (human):** when secure-cicd cuts `vX.Y.Z`, update digest in `deploy/environments/*/images.yaml` via PR in **this** repo.
+**GitOps pin workflow (human):** when secure-cicd cuts `vX.Y.Z`, update digest in `helm-values/applications/demo-app/environments/*/images.yaml` via PR in **this** repo.
 
 ---
 
@@ -199,7 +199,7 @@ policy/
 | No `:latest` | Deny mutable tags in uat/prod |
 | Digest required | Deployments must use `@sha256:` |
 
-**Bootstrap order:** Kyverno Helm → Infisical Operator + key sync → Teleport agent (when configured) → Kyverno policies → demo apps (App-of-Apps waves).
+**Bootstrap order:** Kyverno Helm → Infisical Operator + key sync → Teleport agent (when configured) → Kyverno policies → Policy Reporter UI → demo apps (per-env Argo roots / waves).
 
 **Negative demo (sales):** deploy an unsigned or wrong-digest image → Kyverno blocks; contrast with pinned release digest.
 
@@ -224,31 +224,26 @@ No tag-release / GHCR push / Infisical cosign **signing** (private key) jobs her
 
 ## Step 5 — GitOps (Argo CD)
 
+**Implemented layout (current `main`):**
+
 ```
 argocd/
-  root.yaml
-  applications/
-    platform-kyverno.yaml      # policies first
-    platform-teleport-agent.yaml   # Teleport kube-agent (JIT)
-    demo-dev.yaml
-    demo-uat.yaml
-    demo-prod.yaml
-deploy/environments/
-  dev/values.yaml
-  uat/values.yaml
-  prod/values.yaml
-  */images.yaml                # digest pins
-deploy/platform/
-  teleport-kube-agent-values.yaml
-policy/kyverno/                # as above
+  root-bootstrap.yaml          # platform once
+  root-dev.yaml / root-uat.yaml / root-prod.yaml
+  appsets/{bootstrap,dev,uat,prod}/applicationset.yaml   # explicit files: lists
+charts/bootstrap-layer/*/app.yaml
+charts/applications/demo-app/apps/{dev,uat,prod}.yaml
+helm-values/applications/demo-app/environments/*/images.yaml
+policy/kyverno/
 ```
 
-- `dev`: auto-sync; Kyverno in **Audit** or softer enforce for fast demos.
-- `uat`/`prod`: auto or manual sync; Kyverno **Enforce**; digest required.
+- `dev`: auto-sync; digest + cosign **Enforce** on `demo-app-dev` (OrbStack path).
+- `uat`/`prod`: Enforce digest/cosign; SBOM attestation **Audit** on uat/prod.
 - Teleport agent: **manual sync** until `proxyAddr` + join-token Secret are set.
-- Prod Application `targetRevision: main` (or release git tag of *this* repo’s config) — not floating random branches.
+- Policy Reporter UI: bootstrap wave 4.
+- Prod Application `targetRevision: main` (or release git tag of *this* repo’s config).
 
-Promotion = PR that bumps digest in env values after a secure-cicd release.
+Promotion = PR that bumps digest in env `images.yaml` after a secure-cicd release.
 
 ---
 
@@ -269,15 +264,15 @@ Promotion = PR that bumps digest in env values after a secure-cicd release.
 
 ## Step 7 — JIT access via Teleport (chosen)
 
-**Decision:** human JIT = **Teleport** (`teleport-kube-agent` Helm chart in App-of-Apps).  
+**Decision:** human JIT = **Teleport** (`teleport-kube-agent` Helm chart in bootstrap ApplicationSet).  
 **Explicitly out of scope:** AWS IAM Identity Center, EKS Access Entries-as-JIT, SSM Session Manager access path.
 
 See `docs/JIT_TELEPORT.md` for operator steps.
 
 | Piece | Implementation |
 |-------|----------------|
-| Agent | Argo `platform-teleport-agent` → `teleport-kube-agent` 18.x |
-| Values | `deploy/platform/teleport-kube-agent-values.yaml` (`proxyAddr`, `kubeClusterName`) |
+| Agent | Argo `bootstrap-teleport-kube-agent` → `teleport-kube-agent` |
+| Values | `helm-values/bootstrap-layer/teleport-kube-agent/values.yaml` (`proxyAddr`, `kubeClusterName`) |
 | Join token | K8s Secret `teleport/teleport-kube-agent-join-token` (never in git) |
 | Control plane | Teleport Cloud (demo) **or** optional self-hosted `teleport-cluster` later |
 | Demo | `tsh login` → `tsh kube login` → time-bound `kubectl` |
@@ -438,7 +433,7 @@ Rough guidance for a **sandbox** account. Local-only demo stays **~$0**.
 2. Helm + Compose consume `ghcr.io/sauravrana646/portfolio-secure-cicd@sha256:…`.
 3. **Infisical verify path** (Actions OIDC + Makefile) for `cosign verify` / attestations using `cosign-public-key` only.
 4. Kyverno + Infisical-synced public key + policies (signature/SBOM/digest) + policy tests in CI.
-5. Argo App-of-Apps (Infisical sync → policies → demo envs) + `deploy/environments/*/images.yaml`.
+5. Per-env Argo roots (Infisical sync → policies → Policy Reporter → demo envs) + `helm-values/applications/demo-app/environments/*/images.yaml`.
 6. Terraform: remove ECS; real EKS; IRSA; logging; **cost table + destroy**.
 7. **Teleport JIT** (kube-agent App + `docs/JIT_TELEPORT.md`) — done / harden as needed.
 8. P1 polish: demo script, KIND smoke, Dependabot, screenshots, CONTRIBUTING.
@@ -456,7 +451,7 @@ Rough guidance for a **sandbox** account. Local-only demo stays **~$0**.
 **Local**
 
 - Compose/Helm run API from GHCR digest; `/healthz` OK; no Redis required.
-- `make cluster-down` cleans up.
+- `make bootstrap-down` / `make down` cleans up local paths.
 
 **GitOps**
 

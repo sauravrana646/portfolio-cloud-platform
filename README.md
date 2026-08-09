@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/sauravrana646/portfolio-cloud-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravrana646/portfolio-cloud-platform/actions/workflows/ci.yml)
 
-> Platform deploy pack: run a **signed** app image from [`portfolio-secure-cicd`](https://github.com/sauravrana646/portfolio-secure-cicd) on Compose → Helm → Argo CD → optional EKS, with Kyverno admission and Infisical-backed cosign verify.
+> Platform deploy pack: run a **signed multi-arch** app image from [`portfolio-secure-cicd`](https://github.com/sauravrana646/portfolio-secure-cicd) on Compose → Helm → Argo CD → optional EKS, with Kyverno admission, Infisical-backed cosign verify, and Policy Reporter UI.
 
 ![Demo: Compose stack and local /healthz](docs/images/demo.jpg)
 
@@ -13,10 +13,10 @@ local/
   docker-compose.yml           # $0 API + Compose Prom/Grafana
   bootstrap/                   # Kind e2e: Kyverno, policies, prom-stack, demo-app
 charts/
-  bootstrap-layer/             # prerequisite charts (Kyverno, prom-stack, …)
+  bootstrap-layer/             # Kyverno, prom-stack, Infisical, Policy Reporter, …
   applications/                # workload charts (demo-app)
 helm-values/                   # mirrors charts/ — values only
-argocd/                        # root App + ApplicationSet (auto from charts/)
+argocd/                        # per-env roots + ApplicationSets (explicit file lists)
 policy/kyverno/                # admission policies (referenced by bootstrap chart)
 infra/terraform/               # local | eks
 ```
@@ -40,24 +40,26 @@ Or: `./scripts/demo.sh`
 ## Local Kubernetes setup (OrbStack + Argo CD)
 
 End-to-end guide when Argo CD is already installed on OrbStack: Infisical
-**Universal Auth** machine identity, bootstrap root, env roots (`dev` / `uat` /
-`prod`), Kyverno, monitoring, and `demo-app`.
+**Universal Auth**, bootstrap root (Kyverno, monitoring, policies, **Policy Reporter**),
+env roots (`dev` / `uat` / `prod`), and digest-pinned `demo-app`.
 
 → **[`docs/LOCAL_K8S_ORBSTACK.md`](docs/LOCAL_K8S_ORBSTACK.md)**
+
+Pinned release today: **`portfolio-secure-cicd` `v0.2.0`** (linux/amd64 + linux/arm64).
 
 ## Division of responsibility
 
 | Concern | Repo |
 |---------|------|
-| Build, Trivy, promotion, cosign **sign**, SBOM, GHCR release | [portfolio-secure-cicd](https://github.com/sauravrana646/portfolio-secure-cicd) |
-| Digest pin, Infisical **verify**, Helm/Argo/EKS, Kyverno | **This repo** |
+| Build, Trivy, promotion, cosign **sign**, SBOM, multi-arch GHCR release | [portfolio-secure-cicd](https://github.com/sauravrana646/portfolio-secure-cicd) |
+| Digest pin, Infisical **verify**, Helm/Argo/EKS, Kyverno, Policy Reporter | **This repo** |
 
 ## Architecture
 
 ```mermaid
 flowchart TB
   subgraph upstream [portfolio-secure-cicd]
-    Rel[Signed GHCR release]
+    Rel[Signed multi-arch GHCR release]
   end
   subgraph localpath [local/ — $0]
     Compose[Compose + Prom/Grafana]
@@ -66,6 +68,8 @@ flowchart TB
     Kyverno[Kyverno]
     Prom[kube-prometheus-stack]
     InfOp[Infisical operator]
+    Policies[ClusterPolicies]
+    Reporter[Policy Reporter UI]
     Teleport[Teleport agent]
   end
   subgraph apps [charts/applications]
@@ -73,8 +77,10 @@ flowchart TB
   end
   Rel --> Compose
   Rel --> Demo
-  InfOp --> Kyverno
-  Kyverno --> Demo
+  InfOp --> Policies
+  Policies --> Demo
+  Policies --> Reporter
+  Kyverno --> Policies
   boot --> apps
 ```
 
@@ -85,14 +91,14 @@ flowchart TB
 | Local Compose | `local/docker-compose.yml` |
 | Local OrbStack + Argo | [`docs/LOCAL_K8S_ORBSTACK.md`](docs/LOCAL_K8S_ORBSTACK.md) |
 | Local Kind e2e | `local/bootstrap/` (`make bootstrap-up`) |
-| Bootstrap charts | Kyverno, kube-prometheus-stack, metrics-server, Infisical operator, Teleport |
-| Apps | `charts/applications/demo-app` |
+| Bootstrap charts | Kyverno, policies, Policy Reporter UI, kube-prometheus-stack, metrics-server, Infisical operator, Teleport |
+| Apps | `charts/applications/demo-app` (RO rootfs + `/tmp` emptyDir) |
 | Values | `helm-values/` (mirrors charts) |
-| GitOps | Argo CD ApplicationSet over `charts/` |
+| GitOps | Per-env Argo roots + ApplicationSets (explicit `files:`) |
 | JIT | Teleport (`docs/JIT_TELEPORT.md`) |
 | IaC | Terraform `local` \| `eks` |
 
-See `argocd/README.md`, `helm-values/README.md`, `docs/architecture.md`.
+See `argocd/README.md`, `helm-values/README.md`, `docs/architecture.md`, `docs/RUNBOOK.md`.
 
 ## Hire me for…
 

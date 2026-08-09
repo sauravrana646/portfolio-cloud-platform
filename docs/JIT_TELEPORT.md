@@ -7,14 +7,14 @@ This pack uses **Teleport** for short-lived Kubernetes access.
 
 - Time-bound `kubectl` via `tsh` (certificates, not long-lived kubeconfigs)
 - Works the same on OrbStack/kind and EKS
-- OSS agent chart fits App-of-Apps; optional Teleport Cloud free/team for the control plane (no AWS SSO product)
+- OSS agent chart fits bootstrap ApplicationSet; optional Teleport Cloud free/team for the control plane (no AWS SSO product)
 
 ## Pieces
 
 | Piece | Where |
 |-------|--------|
 | Teleport **proxy / auth** | Teleport Cloud **or** self-hosted `teleport-cluster` (not required in-repo by default) |
-| Teleport **kube agent** | Argo app `platform-teleport-agent` → Helm `teleport-kube-agent` 18.10.3 |
+| Teleport **kube agent** | Argo app `bootstrap-teleport-kube-agent` → Helm `teleport-kube-agent` |
 | Values | `helm-values/bootstrap-layer/teleport-kube-agent/values.yaml` |
 | Join token Secret | `teleport/teleport-kube-agent-join-token` (created out-of-band) |
 
@@ -35,7 +35,7 @@ This pack uses **Teleport** for short-lived Kubernetes access.
    (keys under `teleport-kube-agent:`):
    - `proxyAddr` → your Teleport proxy (`example.teleport.sh:443`)
    - `kubeClusterName` → e.g. `portfolio-cloud-platform` or `orbstack-demo`
-5. Sync Argo app `platform-teleport-agent` (manual sync by design until configured).
+5. Sync Argo app `bootstrap-teleport-kube-agent` (manual sync by design until configured).
 
 ## Operator demo flow
 
