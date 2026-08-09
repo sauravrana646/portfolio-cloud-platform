@@ -332,7 +332,7 @@ jobs:
 
   pr-report:
     name: PR review comment
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && always()
     needs: [helm, terraform]
     runs-on: ubuntu-latest
     permissions:
@@ -393,14 +393,14 @@ jobs:
               });
             }
 
-  # Aggregate gate so branch protection can require a single check name if desired.
+  # Aggregate gate for branch protection (require check name "merge gates").
   gates:
     name: merge gates
     if: always()
-    needs: [helm, terraform, verify-upstream-image, kyverno-validate, pr-report]
+    needs: [helm, terraform, verify-upstream-image, kyverno-validate]
     runs-on: ubuntu-latest
     steps:
-      - name: Require helm + terraform success
+      - name: Require helm + terraform + policy jobs
         run: |
           set -euo pipefail
           echo "helm=${{ needs.helm.result }}"
