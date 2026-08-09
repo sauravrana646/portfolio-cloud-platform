@@ -22,13 +22,17 @@ Optional Kind cluster: `kind create cluster --config local/bootstrap.yaml`.
 
 ## GitOps (App-of-Apps)
 
-`argocd/root.yaml` syncs `argocd/applications/` with sync-waves:
+`argocd/root.yaml` → `argocd/appsets/charts.yaml` (ApplicationSet).
+Discovery files under `charts/**/app.yaml` and `charts/**/apps/*.yaml` create
+Applications automatically (see `argocd/README.md`).
+
+Sync-waves (from those files):
 
 1. Bootstrap Helm: metrics-server, Kyverno, kube-prometheus-stack
 2. Infisical operator → InfisicalSecret (cosign public key)
 3. Teleport kube-agent (JIT)
-4. Kyverno ClusterPolicies
-5. `demo-dev` / `uat` / `prod` from `charts/applications/demo-app`
+4. Kyverno ClusterPolicies (`charts/bootstrap-layer/kyverno-policies`)
+5. `demo-app-{dev,uat,prod}`
 
 Promotion = PR that bumps digests under `helm-values/applications/demo-app/environments/`.
 

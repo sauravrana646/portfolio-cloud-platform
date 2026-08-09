@@ -1,0 +1,15 @@
+name: demo-app-dev
+layer: applications
+chart: demo-app
+chartPath: charts/applications/demo-app
+valuesPath: applications/demo-app
+namespace: demo-app-dev
+env: dev
+imagePin: "true"
+syncWave: "10"
+sourceType: helm
+releaseName: demo-app
+autoSync: "true"
+selfHeal: "true"
+prune: "true"
+finalizer: "false"

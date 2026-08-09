@@ -42,7 +42,7 @@ This pack uses **Teleport** for short-lived Kubernetes access.
 ```bash
 tsh login --proxy=example.teleport.sh:443
 tsh kube login portfolio-cloud-platform
-kubectl -n demo-dev get pods   # short-lived cert via Teleport
+kubectl -n demo-app-dev get pods   # short-lived cert via Teleport
 tsh status                     # show expiry — the JIT talking point
 ```
 

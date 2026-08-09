@@ -1,0 +1,15 @@
+# Discovery contract for ApplicationSet (argocd/appsets/charts.yaml)
+name: bootstrap-kyverno
+layer: bootstrap-layer
+chart: kyverno
+chartPath: charts/bootstrap-layer/kyverno
+valuesPath: bootstrap-layer/kyverno
+namespace: kyverno
+syncWave: "0"
+sourceType: helm
+releaseName: kyverno
+serverSideApply: "true"
+autoSync: "true"
+selfHeal: "true"
+prune: "true"
+finalizer: "true"

@@ -55,18 +55,16 @@ helm-lint:
 helm-template:
 	helm template demo $(CHART_APP) \
 		-f helm-values/applications/demo-app/values.yaml \
-		-f helm-values/applications/demo-app/environments/dev/images.yaml \
-		-f helm-values/applications/demo-app/environments/dev/values.yaml >/dev/null
+		-f helm-values/applications/demo-app/environments/dev/values.yaml \
+		-f helm-values/applications/demo-app/environments/dev/images.yaml >/dev/null
 	helm template demo $(CHART_APP) \
 		-f helm-values/applications/demo-app/values.yaml \
-		-f helm-values/applications/demo-app/values-staging.yaml \
-		-f helm-values/applications/demo-app/environments/uat/images.yaml \
-		-f helm-values/applications/demo-app/environments/uat/values.yaml >/dev/null
+		-f helm-values/applications/demo-app/environments/uat/values.yaml \
+		-f helm-values/applications/demo-app/environments/uat/images.yaml >/dev/null
 	helm template demo $(CHART_APP) \
 		-f helm-values/applications/demo-app/values.yaml \
-		-f helm-values/applications/demo-app/values-prod.yaml \
-		-f helm-values/applications/demo-app/environments/prod/images.yaml \
-		-f helm-values/applications/demo-app/environments/prod/values.yaml >/dev/null
+		-f helm-values/applications/demo-app/environments/prod/values.yaml \
+		-f helm-values/applications/demo-app/environments/prod/images.yaml >/dev/null
 
 tf-validate:
 	cd infra/terraform && terraform init -backend=false && terraform validate
@@ -83,9 +81,8 @@ cluster-deploy:
 	helm upgrade --install demo $(CHART_APP) \
 		--namespace demo \
 		-f helm-values/applications/demo-app/values.yaml \
-		-f helm-values/applications/demo-app/values-staging.yaml \
-		-f helm-values/applications/demo-app/environments/dev/images.yaml \
 		-f helm-values/applications/demo-app/environments/dev/values.yaml \
+		-f helm-values/applications/demo-app/environments/dev/images.yaml \
 		--wait --timeout 180s
 	@echo "Port-forward: kubectl -n demo port-forward svc/demo-api 8080:80"
 

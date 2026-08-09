@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: bad-latest
-  namespace: demo-prod
+  namespace: demo-app-prod
 spec:
   containers:
     - name: api

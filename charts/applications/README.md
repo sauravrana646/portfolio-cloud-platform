@@ -2,8 +2,11 @@
 
 Workload charts (not platform prerequisites).
 
-| Chart | Values |
-|-------|--------|
-| `demo-app` | `helm-values/applications/demo-app/` |
+Discovery: add `apps/<env>.yaml` under the chart. The ApplicationSet creates
+`<chart>-<env>` (namespace `<chart>-<env>`).
 
-Env overlays live under `helm-values/applications/demo-app/environments/{dev,uat,prod}/`.
+| Chart | Envs | Values |
+|-------|------|--------|
+| `demo-app` | `dev`, `uat`, `prod` | `helm-values/applications/demo-app/` |
+
+Env overlays: `helm-values/applications/<chart>/environments/<env>/{values,images}.yaml`.

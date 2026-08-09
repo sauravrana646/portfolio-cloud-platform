@@ -1,0 +1,14 @@
+name: bootstrap-infisical-operator
+layer: bootstrap-layer
+chart: infisical-operator
+chartPath: charts/bootstrap-layer/infisical-operator
+valuesPath: bootstrap-layer/infisical-operator
+namespace: infisical-system
+syncWave: "1"
+sourceType: helm
+releaseName: infisical-secrets-operator
+serverSideApply: "true"
+autoSync: "true"
+selfHeal: "true"
+prune: "true"
+finalizer: "true"

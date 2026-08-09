@@ -20,8 +20,8 @@ spec:
                 - Pod
               namespaces:
                 - demo
-                - demo-uat
-                - demo-prod
+                - demo-app-uat
+                - demo-app-prod
       validate:
         message: "Images must use a digest (@sha256:...) — no mutable tags alone."
         pattern:

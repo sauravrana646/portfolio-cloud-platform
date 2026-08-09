@@ -1,0 +1,11 @@
+name: bootstrap-infisical-secrets
+layer: bootstrap-layer
+chart: infisical-secrets
+chartPath: charts/bootstrap-layer/infisical-secrets
+namespace: platform-system
+syncWave: "2"
+sourceType: directory
+autoSync: "true"
+selfHeal: "true"
+prune: "true"
+finalizer: "false"

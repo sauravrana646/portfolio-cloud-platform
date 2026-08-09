@@ -16,8 +16,8 @@ charts/
 helm-values/                   # mirrors charts/ — values only
   bootstrap-layer/
   applications/demo-app/environments/{dev,uat,prod}/
-argocd/                        # App-of-Apps
-policy/kyverno/                # admission policies (Kustomize)
+argocd/                        # root App + ApplicationSet (auto from charts/)
+policy/kyverno/                # admission policies (referenced by bootstrap chart)
 infra/terraform/               # local | eks
 ```
 
@@ -78,7 +78,7 @@ flowchart TB
 | Bootstrap charts | Kyverno, kube-prometheus-stack, metrics-server, Infisical operator, Teleport |
 | Apps | `charts/applications/demo-app` |
 | Values | `helm-values/` (mirrors charts) |
-| GitOps | Argo CD App-of-Apps |
+| GitOps | Argo CD ApplicationSet over `charts/` |
 | JIT | Teleport (`docs/JIT_TELEPORT.md`) |
 | IaC | Terraform `local` \| `eks` |
 

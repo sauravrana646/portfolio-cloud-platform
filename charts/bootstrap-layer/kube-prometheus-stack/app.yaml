@@ -1,0 +1,14 @@
+name: bootstrap-kube-prometheus-stack
+layer: bootstrap-layer
+chart: kube-prometheus-stack
+chartPath: charts/bootstrap-layer/kube-prometheus-stack
+valuesPath: bootstrap-layer/kube-prometheus-stack
+namespace: monitoring
+syncWave: "0"
+sourceType: helm
+releaseName: kube-prometheus-stack
+serverSideApply: "true"
+autoSync: "true"
+selfHeal: "true"
+prune: "true"
+finalizer: "true"

@@ -106,18 +106,16 @@ jobs:
           }
           render dev \
             -f "$HV/values.yaml" \
-            -f "$HV/environments/dev/images.yaml" \
-            -f "$HV/environments/dev/values.yaml"
+            -f "$HV/environments/dev/values.yaml" \
+            -f "$HV/environments/dev/images.yaml"
           render uat \
             -f "$HV/values.yaml" \
-            -f "$HV/values-staging.yaml" \
-            -f "$HV/environments/uat/images.yaml" \
-            -f "$HV/environments/uat/values.yaml"
+            -f "$HV/environments/uat/values.yaml" \
+            -f "$HV/environments/uat/images.yaml"
           render prod \
             -f "$HV/values.yaml" \
-            -f "$HV/values-prod.yaml" \
-            -f "$HV/environments/prod/images.yaml" \
-            -f "$HV/environments/prod/values.yaml"
+            -f "$HV/environments/prod/values.yaml" \
+            -f "$HV/environments/prod/images.yaml"
 
       - name: Kubeconform validate rendered manifests
         id: kubeconform
@@ -409,11 +407,14 @@ jobs:
           set -euo pipefail
           pip install -q pyyaml
           # Application CRDs are not in upstream k8s schemas — structural checks only.
-          for f in argocd/root.yaml argocd/application.yaml argocd/applications/*.yaml; do
+          for f in argocd/root.yaml argocd/appsets/*.yaml; do
             echo "==> $f"
-            grep -q 'kind: Application' "$f"
             python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" "$f"
           done
+          grep -q 'kind: Application' argocd/root.yaml
+          grep -q 'kind: ApplicationSet' argocd/appsets/charts.yaml
+          # Discovery contract: every chart app.yaml / apps/*.yaml is valid + paths exist
+          python3 scripts/validate-chart-apps.py
           python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" \
             charts/bootstrap-layer/infisical-secrets/infisical-secret-cosign.yaml
           test -f helm-values/bootstrap-layer/kyverno/values.yaml
@@ -421,7 +422,9 @@ jobs:
           test -f helm-values/bootstrap-layer/infisical-operator/values.yaml
           test -f helm-values/bootstrap-layer/metrics-server/values.yaml
           test -f charts/bootstrap-layer/kyverno/Chart.yaml
+          test -f charts/bootstrap-layer/kyverno-policies/app.yaml
           test -f charts/applications/demo-app/Chart.yaml
+          test -f charts/applications/demo-app/apps/dev.yaml
 
 
   pr-report:

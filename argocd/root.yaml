@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/sauravrana646/portfolio-cloud-platform.git
     targetRevision: main
-    path: argocd/applications
+    path: argocd/appsets
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

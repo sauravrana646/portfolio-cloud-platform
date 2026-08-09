@@ -1,0 +1,11 @@
+name: bootstrap-kyverno-policies
+layer: bootstrap-layer
+chart: kyverno-policies
+chartPath: charts/bootstrap-layer/kyverno-policies
+namespace: platform-system
+syncWave: "3"
+sourceType: directory
+autoSync: "true"
+selfHeal: "true"
+prune: "true"
+finalizer: "false"
