@@ -33,11 +33,11 @@ spec:
         syncOptions:
           - CreateNamespace=true
   templatePatch: |
+    {{- if ne (toString (default "true" .finalizer)) "false" }}
     metadata:
-      {{- if ne (toString (default "true" .finalizer)) "false" }}
       finalizers:
         - resources-finalizer.argocd.argoproj.io
-      {{- end }}
+    {{- end }}
     spec:
       {{- if eq (default "helm" .sourceType) "directory" }}
       source:
