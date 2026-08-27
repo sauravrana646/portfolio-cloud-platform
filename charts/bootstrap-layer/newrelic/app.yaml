@@ -1,0 +1,15 @@
+name: bootstrap-newrelic
+layer: bootstrap-layer
+chart: newrelic
+chartPath: charts/bootstrap-layer/newrelic
+valuesPath: bootstrap-layer/newrelic
+namespace: newrelic
+syncWave: "1"
+sourceType: helm
+releaseName: newrelic
+serverSideApply: "true"
+# Manual sync until newrelic-license-key Secret exists in namespace
+autoSync: "false"
+selfHeal: "false"
+prune: "true"
+finalizer: "true"

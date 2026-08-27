@@ -1,0 +1,2 @@
+# Wrapper defaults — override via helm-values/bootstrap-layer/newrelic/values.yaml
+# Nested under dependency alias `newrelic` (upstream chart: nri-bundle).
