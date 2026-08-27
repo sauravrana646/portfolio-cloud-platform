@@ -3,5 +3,8 @@
 argo-rollouts:
   controller:
     replicas: 3
+    metrics:
+      # -- Deploy metrics service
+      enabled: true
   dashboard:
     enabled: true
