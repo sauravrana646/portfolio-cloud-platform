@@ -1,0 +1,10 @@
+apiVersion: v2
+name: argo-rollouts
+description: Wrapper chart — Argo Rollouts progressive delivery (bootstrap prerequisite)
+type: application
+version: 0.1.0
+appVersion: "v1.9.1"
+dependencies:
+  - name: argo-rollouts
+    version: 2.41.1
+    repository: https://argoproj.github.io/argo-helm

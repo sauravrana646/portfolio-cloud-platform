@@ -18,6 +18,7 @@ Discovery: put `app.yaml` in the chart folder **and** add its path to the
 | `teleport-kube-agent` | Helm wrapper | `helm-values/bootstrap-layer/teleport-kube-agent/` |
 | `policy-reporter` | Helm wrapper (UI + Kyverno plugin) | `helm-values/bootstrap-layer/policy-reporter/` |
 | `newrelic` | Helm wrapper (`nri-bundle`) | `helm-values/bootstrap-layer/newrelic/` |
+| `argo-rollouts` | Helm wrapper | `helm-values/bootstrap-layer/argo-rollouts/` |
 | `infisical-secrets` | Kustomize | (in-folder) |
 | `kyverno-policies` | Kustomize → `policy/kyverno` | (in-folder) |
 

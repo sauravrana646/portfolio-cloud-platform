@@ -1,0 +1,7 @@
+# Values for charts/bootstrap-layer/argo-rollouts (nested under dependency name).
+# Sourced from Client-Work/argo-rollouts bootstrap-components/dev-values.yaml
+argo-rollouts:
+  controller:
+    replicas: 3
+  dashboard:
+    enabled: true

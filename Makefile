@@ -56,7 +56,7 @@ verify-image:
 
 helm-deps:
 	@set -euo pipefail; \
-	for d in kyverno kube-prometheus-stack metrics-server infisical-operator teleport-kube-agent policy-reporter newrelic; do \
+	for d in kyverno kube-prometheus-stack metrics-server infisical-operator teleport-kube-agent policy-reporter newrelic argo-rollouts; do \
 	  echo "==> helm dependency update charts/bootstrap-layer/$$d"; \
 	  helm dependency update "charts/bootstrap-layer/$$d"; \
 	done

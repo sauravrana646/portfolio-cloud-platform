@@ -1,0 +1,14 @@
+name: bootstrap-argo-rollouts
+layer: bootstrap-layer
+chart: argo-rollouts
+chartPath: charts/bootstrap-layer/argo-rollouts
+valuesPath: bootstrap-layer/argo-rollouts
+namespace: argo-rollouts
+syncWave: "1"
+sourceType: helm
+releaseName: argo-rollouts
+serverSideApply: "true"
+autoSync: "true"
+selfHeal: "true"
+prune: "true"
+finalizer: "true"
