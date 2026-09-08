@@ -3,6 +3,10 @@
 argo-rollouts:
   controller:
     replicas: 3
+    podAnnotations:
+      newrelic.io/scrape: "true"
+      prometheus.io/path: "/metrics"
+      prometheus.io/port: "8090"
     metrics:
       # -- Deploy metrics service
       enabled: true
