@@ -3,6 +3,13 @@
 argo-rollouts:
   controller:
     replicas: 3
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
     podAnnotations:
       newrelic.io/scrape: "true"
       prometheus.io/path: "/metrics"
